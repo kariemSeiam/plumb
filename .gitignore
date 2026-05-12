@@ -1,0 +1,4 @@
+node_modules/
+.plumb/
+*.log
+.DS_Store

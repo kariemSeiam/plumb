@@ -1,0 +1,124 @@
+// PLUMB — Pi Adapter
+// Wraps `pi --mode rpc --print`. JSONL protocol. Highest value adapter.
+// Extension UI requests are filtered. Text deltas and responses are captured.
+
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import type { AgentAdapter, AgentTask, AdapterEvent, DetectionResult, PlumbConfig } from '../types.ts';
+
+const execFileAsync = promisify(execFile);
+
+interface PiRpcEvent {
+  type: string;
+  text?: string;
+  content?: string;
+  success?: boolean;
+  error?: string;
+  delta?: string;
+  [key: string]: unknown;
+}
+
+export class PiAdapter implements AgentAdapter {
+  readonly id = 'pi';
+  readonly binary = 'pi';
+  readonly tier = 1 as const;
+  readonly displayName = 'Pi';
+  readonly mode = 'oneshot' as const;
+
+  skills = [
+    { id: 'code', name: 'Code generation and editing', tags: ['code', 'edit', 'write'] },
+    { id: 'bash', name: 'Execute shell commands', tags: ['bash', 'shell', 'terminal'] },
+    { id: 'read', name: 'Read files', tags: ['read', 'file'] },
+  ];
+
+  buildArgs(_task: AgentTask, _config: PlumbConfig): string[] {
+    return ['--mode', 'rpc', '--print', '--no-session'];
+  }
+
+  formatInput(task: AgentTask): string {
+    // Pi RPC mode expects JSONL input. Send prompt command.
+    const cmd = {
+      type: 'prompt',
+      message: task.message,
+    };
+    return JSON.stringify(cmd) + '\n';
+  }
+
+  parseLine(line: string): AdapterEvent[] {
+    if (!line.trim()) return [];
+
+    let event: PiRpcEvent;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      // Non-JSON line — treat as raw text
+      return [{ type: 'text-delta', text: line + '\n' }];
+    }
+
+    // Filter extension UI requests — these are status updates, not task output
+    if (event.type === 'extension_ui_request') {
+      return [];
+    }
+
+    // Text delta events — streaming output
+    if (event.type === 'text-delta' || event.type === 'delta') {
+      const text = event.text ?? event.delta ?? event.content ?? '';
+      if (text) return [{ type: 'text-delta', text }];
+      return [];
+    }
+
+    // Content block — full text
+    if (event.type === 'content' || event.type === 'text') {
+      const text = event.text ?? event.content ?? '';
+      if (text) return [{ type: 'text-delta', text }];
+      return [];
+    }
+
+    // Response event — task result
+    if (event.type === 'response') {
+      if (event.success === false && event.error) {
+        return [{ type: 'error', message: event.error }];
+      }
+      // Successful response with content
+      const text = event.text ?? event.content ?? '';
+      if (text) return [{ type: 'text-delta', text }];
+      return [];
+    }
+
+    // Error event
+    if (event.type === 'error') {
+      return [{ type: 'error', message: event.error ?? 'Unknown error' }];
+    }
+
+    // Done/complete signal
+    if (event.type === 'done' || event.type === 'complete' || event.type === 'finished') {
+      return [{ type: 'status', state: 'completed' }];
+    }
+
+    // Unknown event type — log but don't emit
+    return [];
+  }
+
+  async detect(): Promise<DetectionResult | null> {
+    try {
+      const { stdout } = await execFileAsync('which', ['pi'], { timeout: 5000 });
+      // Get version
+      let version = 'unknown';
+      try {
+        const { stdout: vOut } = await execFileAsync('pi', ['--version'], { timeout: 5000 });
+        version = vOut.trim().split('\n')[0] ?? 'unknown';
+      } catch {
+        // Version check failed, continue with unknown
+      }
+      return {
+        binary: 'pi',
+        version,
+        path: stdout.trim(),
+        tier: 1,
+        protocol: 'jsonl-rpc',
+      };
+    } catch {
+      return null;
+    }
+  }
+}

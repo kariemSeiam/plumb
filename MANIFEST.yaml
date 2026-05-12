@@ -1,0 +1,72 @@
+# PLUMB MANIFEST — Single Source of Truth
+# Last updated: 2026-05-12
+# Session: 1 (pivot — bridge replaces agent scaffold)
+
+identity:
+  name: plumb
+  version: 0.1.0
+  tagline: "Quiet pipes for noisy agents"
+  motto: "silent, accurate, always down"
+
+stack:
+  runtime: bun
+  typescript: true
+  transport: a2a-http-sse
+  protocol: jsonrpc-2.0
+  ledger: jsonl-append-only
+
+adapters:
+  echo:
+    cli: cat
+    port: 3001
+    mode: oneshot
+    tier: 1
+    status: active
+  generic:
+    cli: any
+    mode: oneshot
+    tier: 3
+    status: active
+
+build_order:
+  - types
+  - core_ledger
+  - core_process
+  - core_executor
+  - core_server
+  - adapter_echo
+  - adapter_generic
+  - cli
+  - conformance_test
+  - adapter_pi
+  - adapter_claude
+  - adapter_cursor
+
+build_state:
+  phase: 0
+  current: conformance_test
+  done:
+    - types
+    - core_ledger
+    - core_process
+    - core_executor
+    - core_server
+    - adapter_echo
+    - adapter_generic
+    - cli
+  next: conformance_test
+  blockers: []
+
+success_metrics:
+  agent_card_test: FAIL
+  task_lifecycle_test: FAIL
+  ledger_survival_test: FAIL
+  routing_test: FAIL
+
+brand:
+  palette: [slate, cistern, water, brass]
+  villain: The Demo
+  refusal: no-dashboards
+  interface: logs-are-the-ui
+  afterlife: dissolve-into-protocol
+  metaphor: brass-plumb-bob

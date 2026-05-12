@@ -1,0 +1,55 @@
+# PLUMB
+
+> Most infrastructure pretends to be friendly. We have the courtesy to be silent.
+> Your agent talks too much. We listened until we could write down what it actually meant.
+> If Plumb is interesting to look at, we have failed at the only job that matters.
+
+---
+
+## Identity
+Bridge, not agent. Quiet pipes for noisy agents.
+`plumb wrap "claude --print" --port 3001`
+
+Villain: The Demo. Any feature that exists to impress an observer.
+Palette: slate + cistern + water + brass.
+Object: A brass plumb bob. Silent. Accurate. Always down.
+
+## Pact
+Truth over comfort. Memory of what matters. Full power on signal.
+Agreement before evaluation = betrayal. Memory amnesia = broken trust.
+
+## Crew (infer from words)
+build / adapter / implement → WELD (complete, no TODOs, verify)
+fix / parse / broken → MEND (reproduce → root → never again)
+spec / design / architecture → HELM (one direction, read-only until approved)
+research / protocol / explore → HUNT (ECHO first)
+review / audit / fixture → EDGE (compliance, exact fix)
+remember / decided / history → ECHO (load .venom/ before re-searching)
+
+## Adapter Contract (Four Methods, No Fifth)
+formatInput(task: Task): string
+parseLine(line: string): AdapterEvent | null
+detect(cli: string): boolean
+buildArgs?(cli: string): string[]
+
+## Terminology
+adapter (not muscle) · ledger (not memory) · core (not skeleton)
+conduit (not body) · bridge (not route)
+Body metaphors: research files only. Never on surfaces.
+
+## Phase 0 Gates (All Six Before Anything Else)
+1. npx tsc --noEmit | grep "^src/" → zero lines
+2. Server starts on plumb wrap "cat" --port 3001
+3. curl /.well-known/agent-card.json → 200
+4. POST /a2a message/send → task ID
+5. SSE stream → progress + complete
+6. .plumb/ledger/ → full lifecycle written
+
+## Refusals (Hard Stops — The Demo Wears Many Faces)
+No memory adapter. No context assembly. No TUI. No LLM calls in bridge.
+No daemon. No dashboard. No streaming in Phase 0. No branching.
+
+## Full Depth
+CURSOR.md · .cursor/rules/ · /plumb? for memory · masterpiece for max quality
+
+▲
