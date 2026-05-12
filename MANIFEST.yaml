@@ -1,9 +1,9 @@
 # PLUMB MANIFEST — Single Source of Truth
 # Last updated: 2026-05-12
-# Session: 1 (pivot — bridge replaces agent scaffold)
 
 identity:
   name: plumb
+  npm_package: plumb-bridge
   version: 0.1.0
   tagline: "Quiet pipes for noisy agents"
   motto: "silent, accurate, always down"
@@ -18,9 +18,23 @@ stack:
 adapters:
   echo:
     cli: cat
-    port: 3001
     mode: oneshot
     tier: 1
+    status: active
+  pi:
+    cli: pi
+    mode: persistent
+    tier: 1
+    status: active
+  claude:
+    cli: claude
+    mode: oneshot
+    tier: 1
+    status: active
+  opencode:
+    cli: opencode
+    mode: oneshot
+    tier: 2
     status: active
   generic:
     cli: any
@@ -40,11 +54,12 @@ build_order:
   - conformance_test
   - adapter_pi
   - adapter_claude
+  - adapter_opencode
   - adapter_cursor
 
 build_state:
   phase: 0
-  current: conformance_test
+  current: publish
   done:
     - types
     - core_ledger
@@ -54,14 +69,22 @@ build_state:
     - adapter_echo
     - adapter_generic
     - cli
-  next: conformance_test
-  blockers: []
+    - conformance_test
+    - adapter_pi
+    - adapter_claude
+    - adapter_opencode
+  next: npm_publish
+  blockers:
+    - npm authentication not configured in CI/sandbox (local: npm login)
 
 success_metrics:
-  agent_card_test: FAIL
-  task_lifecycle_test: FAIL
-  ledger_survival_test: FAIL
-  routing_test: FAIL
+  agent_card_test: PASS
+  task_lifecycle_test: PASS
+  ledger_survival_test: PASS
+  routing_test: PASS
+
+notes:
+  adapter_cursor: skipped — host `cursor` binary is the IDE, not a headless coding agent CLI.
 
 brand:
   palette: [slate, cistern, water, brass]
