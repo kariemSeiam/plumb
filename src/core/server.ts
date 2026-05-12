@@ -14,6 +14,7 @@ import {
 import type { AgentAdapter, PlumbConfig } from '../types.ts';
 import { Ledger } from './ledger.ts';
 import { PlumbExecutor } from './executor.ts';
+import { PlumbTaskStore } from './task-store.ts';
 
 export function createPlumbServer(config: PlumbConfig & { adapter: AgentAdapter }) {
   const { adapter, port } = config;
@@ -39,13 +40,21 @@ export function createPlumbServer(config: PlumbConfig & { adapter: AgentAdapter 
   };
 
   const executor = new PlumbExecutor(adapter, config, ledger);
-  const taskStore = new InMemoryTaskStore();
+  const taskStore = new PlumbTaskStore({ maxTasks: 100, completedRetentionMinutes: 60 });
   const requestHandler = new DefaultRequestHandler(agentCard, taskStore, executor);
+
+  // Periodic cleanup: evict terminal tasks past retention window every 5 min
+  const cleanupInterval = setInterval(() => {
+    taskStore.cleanupStaleCompleted();
+  }, 5 * 60 * 1000);
+  // Don't hold the process open
+  if (cleanupInterval.unref) cleanupInterval.unref();
 
   return {
     executor,
     agentCard,
     ledger,
+    taskStore,
     setupApp: (app: express.Express) => {
       app.use(express.json({ limit: '10mb' }));
 
