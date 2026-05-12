@@ -75,7 +75,7 @@ build_state:
     - adapter_opencode
   next: npm_publish
   blockers:
-    - npm authentication not configured in CI/sandbox (local: npm login)
+    - npm token required — local `npm login` OR GitHub Actions secret `NPM_TOKEN` (see `.github/workflows/publish-npm.yml`)
 
 success_metrics:
   agent_card_test: PASS
