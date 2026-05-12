@@ -96,7 +96,8 @@ build_state:
     - npm_publish
     - persistent_wait_until_ready
     - persistent_rpc_commands
-  next: cursor_session_store
+    - cursor_session_store
+  next: fleet_parity_achieved
   blockers: [npm_token]
   ci_note: GitHub Actions `publish-npm.yml` needs repo secret NPM_TOKEN (granular publish) to publish on tag push.
 
