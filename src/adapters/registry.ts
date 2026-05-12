@@ -1,7 +1,7 @@
 // PLUMB — Adapter Registry
 // detectAdapter: returns the first adapter whose binary matches the CLI command.
 // EchoAdapter for 'cat'. GenericAdapter for everything else.
-// Add real adapters here as they are built (Pi, Claude, Cursor...).
+// Add real adapters here as they are built (Pi, Claude, OpenCode...).
 
 import { EchoAdapter } from './echo.ts';
 import { PiAdapter } from './pi.ts';

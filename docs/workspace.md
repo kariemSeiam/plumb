@@ -63,18 +63,18 @@ One voice. Switch lens; don't spawn.
 **Tier 1: Spine** — `01-spine.mdc` [priority 1001]  
 4KB. Circulation, diseases, standards, commands. Always loaded.
 
-**Tier 2: Platform + Policy** — `02-cursor-platform.mdc` + `03-tool-policy.mdc` [priority 999-998]  
-5KB. Cursor tools, governance, loop detection. Always loaded.
+**Tier 2: Platform + Policy** — platform + tool-policy rule modules [priority 999–998]  
+5KB. Editor tooling conventions, governance, loop detection. Always loaded.
 
 **Tier 3: Domain** — `04-plumb-domain.mdc` [priority 997]  
 3KB. Adapter interface, terminology lock, phase gates, refusals. Always loaded.
 
 **Total always-loaded: ~12KB**
 
-**Tier 4: Knowledge** — `.cursor/knowledge/` [on-demand via `@`]  
+**Tier 4: Knowledge** — project knowledge base [on-demand via `@` references]  
 Architecture · Adapter guide · Pact · Terminology. Load when depth is needed.
 
-**Tier 5: Skills** — `.cursor/skills/` [invoked]  
+**Tier 5: Skills** — procedural skills [invoked]  
 add-adapter · conformance · plumb-init. Trigger on command or natural language.
 
 **Tier 6: Memory** — `.venom/` [signaled]  
@@ -126,7 +126,7 @@ Six pass before anything else exists:
 1. npx tsc --noEmit | grep "^src/"  →  zero lines
 2. bun run src/main.ts wrap "cat" --port 3001  →  starts
 3. curl /.well-known/agent-card.json  →  200
-4. POST /a2a message/send  →  task ID returned
+4. POST /a2a/jsonrpc message/send  →  task ID returned
 5. SSE stream  →  progress + complete events
 6. .plumb/ledger/  →  full task lifecycle written
 ```

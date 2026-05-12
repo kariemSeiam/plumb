@@ -4,7 +4,8 @@
 identity:
   name: plumb
   npm_package: plumb-bridge
-  version: 0.1.0
+  version: 0.1.2
+  repo: https://github.com/kariemSeiam/plumb
   tagline: "Quiet pipes for noisy agents"
   motto: "silent, accurate, always down"
 
@@ -55,11 +56,11 @@ build_order:
   - adapter_pi
   - adapter_claude
   - adapter_opencode
-  - adapter_cursor
+  - adapter_host_editor
 
 build_state:
   phase: 0
-  current: publish
+  current: github_main
   done:
     - types
     - core_ledger
@@ -73,11 +74,10 @@ build_state:
     - adapter_pi
     - adapter_claude
     - adapter_opencode
-  next: npm_publish
-  blockers:
-    - >-
-      npm publish E403: enable 2FA and use `npm publish --otp=...`, or use a granular automation
-      token with publish + bypass 2FA; GitHub needs secret NPM_TOKEN with same kind of token
+    - npm_publish
+  next: tag_v0.1.2_push_for_ci_publish_optional
+  blockers: []
+  ci_note: GitHub Actions `publish-npm.yml` needs repo secret NPM_TOKEN (granular publish) to publish on tag push.
 
 success_metrics:
   agent_card_test: PASS
@@ -86,7 +86,7 @@ success_metrics:
   routing_test: PASS
 
 notes:
-  adapter_cursor: skipped — host `cursor` binary is the IDE, not a headless coding agent CLI.
+  adapter_host_editor: skipped — the packaged host IDE is not a headless coding-agent CLI.
 
 brand:
   palette: [slate, cistern, water, brass]

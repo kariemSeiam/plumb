@@ -1,6 +1,6 @@
 // PLUMB — Server
 // Express + @a2a-js/sdk. Agent Card. JSON-RPC. REST. Health.
-// Stolen from fangai's createFangServer, adapted: Plumb naming, ledger injection, no Cursor.
+// Derived from prior bridge layout: Plumb naming, ledger injection, no vendor IDE coupling.
 
 import type { Request, Response, NextFunction } from 'express';
 import express from 'express';

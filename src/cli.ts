@@ -2,10 +2,23 @@
 // plumb wrap <cli> --port <n>
 // That's the interface. Nothing else.
 
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import express from 'express';
 import { createPlumbServer } from './core/server.ts';
 import { detectAdapter } from './adapters/registry.ts';
+
+function readPackageVersion(): string {
+  try {
+    const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+    const raw = readFileSync(join(root, 'package.json'), 'utf8');
+    return (JSON.parse(raw) as { version?: string }).version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
 
 function log(level: string, msg: string, data?: Record<string, unknown>): void {
   process.stderr.write(JSON.stringify({
@@ -19,7 +32,7 @@ function log(level: string, msg: string, data?: Record<string, unknown>): void {
 const program = new Command()
   .name('plumb')
   .description('Quiet pipes for noisy agents. A2A bridge for any CLI coding agent.')
-  .version('0.1.0');
+  .version(readPackageVersion());
 
 program
   .command('wrap <cli>')

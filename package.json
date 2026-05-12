@@ -1,17 +1,30 @@
 {
   "name": "plumb-bridge",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "A2A bridge for CLI coding agents. Bun runtime. Example: plumb wrap cat --port 3001. Use plumb wrap opencode (not opencode run — the adapter adds run --format json).",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kariemSeiam/plumb.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kariemSeiam/plumb/issues"
+  },
+  "homepage": "https://github.com/kariemSeiam/plumb#readme",
+  "author": "Kariem Seiam <kariemSeiam@users.noreply.github.com>",
+  "license": "MIT",
   "type": "module",
   "module": "src/main.ts",
   "bin": {
-    "plumb": "src/main.ts"
+    "plumb": "./src/main.ts",
+    "plumb-bridge": "./src/main.ts"
   },
   "files": [
     "src",
     "test",
     "tsconfig.json",
-    "bunfig.toml"
+    "bunfig.toml",
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "bun": ">=1.1.0"

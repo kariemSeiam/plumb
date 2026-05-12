@@ -43,6 +43,8 @@ Plumb does not pretend the architecture is more sophisticated than this.
 Plumb/
 ├── AGENTS.md              ← YOU ARE HERE (read every session)
 ├── MANIFEST.yaml          ← The only contract. Single source of truth.
+├── docs/
+│   └── workspace.md       ← Workspace command reference (optional local rule trees gitignored)
 ├── src/
 │   ├── types.ts           ← AgentTask, AdapterEvent, PlumbConfig, AgentAdapter, LedgerEvent
 │   ├── cli.ts             ← CLI: plumb wrap <cli> --port <n>
@@ -56,11 +58,15 @@ Plumb/
 │       ├── echo.ts        ← EchoAdapter (wraps cat) — Phase 0 conformance gate
 │       ├── generic.ts     ← GenericAdapter (text passthrough)
 │       └── registry.ts    ← detectAdapter() — maps CLI string to adapter
-├── playgorund/
-│   └── INSTANCES/plumb/   ← idea.md, pact.md, notes.txt, refs/
+├── test/                  ← conformance tests
+├── package.json
+├── tsconfig.json
+├── bunfig.toml
 └── .plumb/                ← Runtime state (gitignored)
     └── ledger/            ← JSONL per-day files
 ```
+
+`playgorund/`, editor-local config dirs, and `.venom/` are gitignored (local research, IDE rules, session memory). Shipped contract surface: `MANIFEST.yaml`, `src/`, `test/`, `docs/workspace.md`, `AGENTS.md`, `SPEC.md`.
 
 ---
 
@@ -136,7 +142,7 @@ Three methods that matter: `formatInput` (task → stdin), `parseLine` (stdout l
 
 3. **Claude adapter** — after Pi.
 
-**Build order for adapters:** echo (done) → conformance test → pi → claude → cursor → generic (done).
+**Build order for adapters:** echo (done) → conformance test → pi → claude → opencode → generic (done). Host-packaged IDE: no adapter (not a headless CLI; see `MANIFEST.yaml` notes).
 
 ---
 

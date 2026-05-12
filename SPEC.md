@@ -1,238 +1,178 @@
 # PLUMB SPEC
-## The living contract. Stays in sync with code. Replaces nothing, supersedes everything.
-> Last synced: 2026-05-12 — Session 1. Code exists. Bridge runs. Echo passes.
+
+## Living contract
+
+Stays aligned with **`MANIFEST.yaml`** (product state), **`src/types.ts`** (interfaces), and **`src/`** (behavior). If this file disagrees with those, **trust the code and manifest first**, then update this doc.
+
+**Last synced:** 2026-05-12 — `plumb-bridge@0.1.2`, Phase 0 metrics PASS, adapters: echo, pi, claude, opencode, generic.
 
 ---
 
-## § What Plumb Is
+## What Plumb is
 
-One sentence: a bridge between orchestrators that speak A2A and agents that speak stdin/stdout.
+One sentence: a bridge between orchestrators that speak **A2A** and agents that speak **stdin/stdout**.
 
 ```
-Orchestrator → HTTP/JSON-RPC → Plumb → subprocess → CLI agent → parse → A2A events
+Orchestrator → HTTP/JSON-RPC → Plumb → subprocess → CLI agent → parseLine → AdapterEvent[] → A2A + ledger
 ```
 
-Plumb is not an agent. It has no LLM. It has no memory. It has no loop.
-It spawns processes, parses lines, and emits events. That's the architecture.
-Everything else is a refusal.
+Plumb is not an agent. It has no LLM, no session memory, no orchestration. It spawns processes (or holds one persistent process), parses stdout lines, maps them to events, and writes **append-only JSONL**. Everything else is out of scope or refused.
 
 ---
 
-## § What Exists Right Now
+## What exists right now
 
 ```
 src/
-  types.ts           Contract: AgentTask, AdapterEvent, PlumbConfig, AgentAdapter, LedgerEvent
-  cli.ts             Entry: plumb wrap <cli> --port <n>
-  main.ts            3 lines
+  types.ts           AgentTask, AdapterEvent, PlumbConfig, AgentAdapter, DetectionResult, LedgerEvent
+  cli.ts             plumb wrap <cli> --port <n>
+  main.ts            entry
   core/
-    ledger.ts        Append-only JSONL → .plumb/ledger/{date}.jsonl
-    process.ts       ProcessManager + LF-only JSONL reader
-    executor.ts      PlumbExecutor implements @a2a-js/sdk AgentExecutor
-    server.ts        Express + @a2a-js/sdk: Agent Card, JSON-RPC, REST, health
+    ledger.ts        append-only JSONL → .plumb/ledger/{YYYY-MM-DD}.jsonl
+    process.ts       ProcessManager, persistent JSONL line reader
+    executor.ts      PlumbExecutor — @a2a-js/sdk AgentExecutor
+    server.ts        Express — Agent Card, JSON-RPC, REST, health
   adapters/
-    echo.ts          EchoAdapter wraps `cat` — the conformance gate
-    generic.ts       GenericAdapter — text passthrough for any CLI
-    registry.ts      detectAdapter(cli) → right adapter or Generic
+    echo.ts          EchoAdapter — `cat` — conformance gate
+    pi.ts            PiAdapter — persistent JSONL-RPC
+    claude.ts        ClaudeAdapter — stream-json
+    opencode.ts      OpenCodeAdapter — `opencode` + run --format json
+    generic.ts       GenericAdapter — fallback for any CLI
+    registry.ts      detectAdapter(cli) — order matters; generic is implicit last
+test/
+  conformance.test.ts   Phase 0 automated gates — `bun test test/conformance.test.ts`
 ```
 
-**Verified working:**
+**Smoke check:**
+
 ```bash
 bun run src/main.ts wrap cat --port 3001
-# → Agent Card at /.well-known/agent-card.json
-# → JSON-RPC at /a2a/jsonrpc
-# → message/send "hello" → response "hello\n"
-# → ledger: task_submitted → task_running → progress → task_completed
+# GET /.well-known/agent-card.json → 200
+# POST /a2a/jsonrpc message/send → task runs
+# Ledger lines: task_submitted → task_running → progress → task_completed
 ```
 
 ---
 
-## § The Adapter Interface
+## AgentAdapter (contract)
 
-Three methods. That's it.
+Authoritative shape is **`src/types.ts`**. Summary:
 
 ```typescript
 interface AgentAdapter {
-  // What to write to the CLI's stdin
-  formatInput(task: AgentTask): string;
-
-  // How to parse one stdout line into events
-  parseLine(line: string): AdapterEvent[];
-
-  // Is this binary installed on the current machine?
-  detect(): Promise<DetectionResult | null>;
-
-  // Supporting metadata
   readonly id: string;
   readonly binary: string;
-  readonly mode: 'oneshot' | 'persistent';
   readonly tier: 1 | 2 | 3;
+  readonly displayName: string;
+  readonly mode: 'oneshot' | 'persistent';
+  skills: Array<{ id: string; name: string; tags: string[] }>;
+
   buildArgs(task: AgentTask, config: PlumbConfig): string[];
+  formatInput(task: AgentTask): string;
+  parseLine(line: string): AdapterEvent[];
+  detect(): Promise<DetectionResult | null>;
 }
 ```
 
-**Event types** (`AdapterEvent`):
-- `text-delta` — text fragment (accumulates into final message)
-- `tool-call` / `tool-result` — logged, forwarded as artifact
-- `status` — `working` | `completed` | `failed`
-- `error` — task fails, bus.finished()
+**Registry:** `src/adapters/registry.ts` tries **Echo → Pi → Claude → OpenCode** by matching `binary` against the `wrap` CLI string; if none match, **`GenericAdapter`** wraps the raw CLI string.
 
-**Process lifecycle:**
-1. `spawn(cmd, args)` — ProcessManager handles stdin/stdout/stderr/exit
-2. `stdin ← adapter.formatInput(task)` — written, then stdin closed (oneshot)
-3. `stdout line → adapter.parseLine(line)` — zero or more AdapterEvents
-4. `exit 0` → task_completed if not already settled
-5. `exit N / timeout` → task_failed
+**Host IDE adapter:** not shipped — the packaged host application is not a headless agent CLI (`MANIFEST.yaml` notes).
 
 ---
 
-## § The Protocol Surface
+## Adapter events vs ledger
 
-```
-GET  /.well-known/agent-card.json   public, always
-GET  /.well-known/agent.json        redirects to agent-card.json
-GET  /health                        public, always
-POST /a2a/jsonrpc                   JSON-RPC 2.0 — message/send, message/stream, tasks/*
-     /a2a/rest                      HTTP+JSON REST surface (same operations)
-```
+**`AdapterEvent`** (stdout parsing — what adapters emit):
 
-If `apiKey` is set, `/a2a/jsonrpc` and `/a2a/rest` require `Authorization: Bearer <key>`.
-Agent Card and health are always public. This is the A2A spec requirement.
+- `text-delta` — text fragment; executor appends to task output, writes **`progress`** to ledger, streams artifact-update on the A2A bus.
+- `tool-call` / `tool-result` — typed for agent-like output; extend executor behavior if a CLI needs them surfaced.
+- `status` — `state: 'working' | 'completed' | 'failed'`; **`completed`** settles the task early (before process exit) when the protocol signals done.
+- `error` — task failure.
 
-**Agent Card shape:**
-```json
-{
-  "name": "<adapter>-plumb",
-  "protocolVersion": "0.3.0",
-  "capabilities": { "streaming": true },
-  "skills": [...],
-  "metadata": { "bridge": "plumb", "tier": 1, "mode": "oneshot", "ledger": ".plumb/ledger/..." }
-}
-```
+**`LedgerEvent`** (disk — one JSON object per line in `.plumb/ledger/{date}.jsonl`):
+
+`task_submitted` | `task_running` | `progress` | `log` | `task_completed` | `task_failed` | `task_cancelled`
+
+Never rewrite or delete ledger files. Write failure is non-fatal (stderr JSON log).
 
 ---
 
-## § The Ledger
+## Protocol surface
 
-Every task event is one line in `.plumb/ledger/{YYYY-MM-DD}.jsonl`.
+From **`src/core/server.ts`**:
 
-```jsonl
-{"type":"task_submitted","taskId":"...","cli":"cat","message":"hello","timestamp":"..."}
-{"type":"task_running","taskId":"...","timestamp":"..."}
-{"type":"progress","taskId":"...","text":"hello\n","timestamp":"..."}
-{"type":"task_completed","taskId":"...","timestamp":"..."}
-```
+| Method | Path | Notes |
+|--------|------|--------|
+| GET | `/.well-known/agent-card.json` | public |
+| GET | `/.well-known/agent.json` | redirect → agent-card |
+| GET | `/health` | public |
+| POST | `/a2a/jsonrpc` | JSON-RPC 2.0 (`message/send`, etc.) |
+| (mounted) | `/a2a/rest` | REST surface from SDK |
 
-All seven event types: `task_submitted` | `task_running` | `progress` | `log` | `task_completed` | `task_failed` | `task_cancelled`
+If **`apiKey`** is set in config, **`Authorization: Bearer <key>`** is required for `/a2a/*` (not for Agent Card or health).
 
-Query: `jq 'select(.taskId == "abc")' .plumb/ledger/2026-05-12.jsonl`
-The ledger never mutates. Ledger write failure is non-fatal — log to stderr, continue.
-
----
-
-## § Phase 0 Gates (all must pass)
-
-| Gate | Test | Status |
-|------|------|--------|
-| `agent_card_test` | `GET /.well-known/agent-card.json` → 200 + valid Card schema | **NEEDS FIXTURE** |
-| `task_lifecycle_test` | `message/send` → SSE produces progress + final message | **NEEDS FIXTURE** |
-| `ledger_survival_test` | task runs → kill process → ledger file intact with full lifecycle | **NEEDS FIXTURE** |
-| `routing_test` | `plumb wrap cat --port <free>` → echo task → correct response | **NEEDS FIXTURE** |
-
-Next action: write `src/test/conformance.test.ts`. Run with `bun test`. All four pass → Phase 0 complete.
+**Agent Card** includes `protocolVersion`, `capabilities.streaming`, `skills`, and `metadata` with `bridge`, `tier`, `mode`, `ledger` path.
 
 ---
 
-## § Adapter Build Order
+## Phase 0 gates (automated)
 
-Phase 0 done. What ships next, in order:
+| Metric | Test idea | Status |
+|--------|-----------|--------|
+| `agent_card_test` | Valid Agent Card from running server | **PASS** |
+| `task_lifecycle_test` | `message/send` completes | **PASS** |
+| `ledger_survival_test` | Ledger contains lifecycle for a task | **PASS** |
+| `routing_test` | `wrap cat` echo behavior | **PASS** |
 
-1. **Conformance test** — `src/test/conformance.test.ts` — 4 fixtures, all pass required
-2. **Pi adapter** — `src/adapters/pi.ts` — persistent JSONL RPC, Tier 1
-   - `formatInput` → `{"id":"...","type":"prompt","message":"..."}\n`
-   - `parseLine` → map pi event types to AdapterEvents (ref: `fangai/src/adapters.ts` PiAdapter)
-   - mode: `persistent`, uses `PersistentProcess`
-3. **Claude adapter** — `src/adapters/claude.ts` — stream-json, Tier 1
-   - `buildArgs` → `-p --output-format stream-json --verbose`
-   - `parseLine` → type=assistant → text-delta, type=result → status
-4. **Cursor adapter** — `src/adapters/cursor.ts` — stream-json, Tier 1
+**Run:** `bun test test/conformance.test.ts` (also runs via `npm run test` / `prepublishOnly`).
 
-Each adapter ships with its own fixture before it's declared stable. No fixture → no ship.
+Source of truth for pass/fail labels: **`MANIFEST.yaml`** → `success_metrics`.
 
 ---
 
-## § Decisions Made (immutable)
+## Build and release state
 
-| Decision | Choice | Rejected |
-|----------|--------|---------|
-| Language | TypeScript/Bun | Go, Python |
-| Protocol | A2A `@a2a-js/sdk` v0.3.13 | Custom HTTP, MCP |
-| Process model | `node:child_process` spawn, LF-only JSONL reader | readline (U+2028 bug) |
-| State | Ledger (JSONL append-only) | SQLite, Redis |
-| Interface | HTTP+SSE (Express) | WebSocket, gRPC |
-| Adapter mode | oneshot (spawn per task) + persistent (Pi) | pooled processes |
-| Entry point | `plumb wrap <cli> --port <n>` | config file only |
-| VENOM relationship | Consumer of principles, independent codebase | Fork, arm |
+See **`MANIFEST.yaml`** → `build_state` and `identity.version` (aligned with npm package **`plumb-bridge`**).
+
+**Done (high level):** core, cli, conformance, echo, generic, pi, claude, opencode, npm publish for current line.
+
+**Next:** git `main` + version tag aligned with `package.json`; CI publish needs GitHub **`NPM_TOKEN`** for tag-driven workflow.
 
 ---
 
-## § What Plumb Will Never Build
+## Decisions (stable)
 
-These are not deferred. They are refused.
-
-1. **Dashboard.** Logs are the UI. Enterprise will ask. The answer is no.
-2. **Memory.** Memory belongs to the wrapped agent. Plumb is the pipe.
-3. **Orchestration.** Routing, fan-out, cost decisions — separate product.
-4. **TUI.** stderr is structured JSON. stdout is for the subprocess. No ANSI renderer.
-5. **Plugin system.** Adapters live in `src/adapters/`. Registry is `detectAdapter()`. No hot-reload, no discovery.
-
----
-
-## § Identity
-
-```
-Name:     Plumb
-Tagline:  Quiet pipes for noisy agents.
-Voice:    Most infrastructure pretends to be friendly. We have the courtesy to be silent.
-Villain:  The Demo — software optimized for the screenshot, not the deployment.
-Object:   Brass plumb bob, machined, weighted to gravity. Sent for real bugs.
-Afterlife: When every CLI speaks A2A, the company dissolves. The protocol survives.
-```
-
-**Palette:** Slate `#1a1a2e` · Cistern `#0d0d1a` · Water `#16c79a` · Brass `#c5a55a`
-**Type:** Inter 700/400 · JetBrains Mono · Mark: ▲ (plumb bob silhouette, not a logo)
-
-**Terminology lock:**
-
-| Research (refs/ only) | Surface (everywhere else) |
-|-----------------------|--------------------------|
-| Body | Conduit |
-| Skeleton | Core |
-| Muscles | Adapters |
-| Blood | Task pipeline |
-| Memory | Ledger |
-| Hearts | Circuit breakers |
-| SIPHON | Recovery |
-| Soul | Validator |
-
-Body metaphors in code, commits, docs, or API responses → reject.
+| Topic | Choice |
+|-------|--------|
+| Runtime | TypeScript on **Bun** |
+| Protocol | **A2A** via `@a2a-js/sdk` |
+| Process | `node:child_process` spawn; persistent lane for Pi |
+| State on disk | JSONL ledger only — no DB in Phase 0 |
+| Entry | `plumb wrap <cli> --port <n>` |
 
 ---
 
-## § The Only Number That Matters
+## What Plumb will never build
 
-Conformance fixture pass rate. Not stars. Not users. Not tokens/week.
-
-`echo` adapter: target 4/4 (Phase 0).
-`pi` adapter: target 4/4 + Pi-specific fixtures (Phase 1).
-`claude` adapter: target 4/4 + Claude-specific fixtures (Phase 1).
-
-Every adapter gets a score. Every release publishes the scores.
-A score below 100% blocks the release.
+Not deferred — refused: dashboard-as-UI, Plumb-owned LLM memory, orchestration product, TUI/ANSI for the bridge, hot-reload plugin marketplace. Adapters are code in **`src/adapters/`** plus registry order.
 
 ---
 
-*The plumb bob hangs true because gravity is not negotiable.*
-*The protocol gap is not negotiable either.*
-*Ship the conformance test. Then Pi. Then Claude.*
-*The pipe holds.*
+## Identity
+
+**Name:** Plumb  
+**npm:** `plumb-bridge`  
+**Tagline:** Quiet pipes for noisy agents.  
+**Voice:** State, don’t hedge. Logs are the UI.
+
+**Terminology (surface):** adapter, ledger, core, bridge/conduit — not body/skeleton/muscle metaphors on shipped docs or API.
+
+---
+
+## The number that matters
+
+**Conformance:** `bun test test/conformance.test.ts` must stay green before release. Per-adapter CLIs need their own fixtures when you change `parseLine` or upstream CLI output.
+
+---
+
+*The plumb bob hangs true because gravity is not negotiable. The protocol gap is not negotiable either.*

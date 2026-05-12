@@ -1,6 +1,9 @@
 node_modules/
 .plumb/
-.venom/state/
+.venom/
+.cursor/
+playgorund/
+
 *.tgz
 *.log
 .DS_Store
