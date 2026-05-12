@@ -1,5 +1,5 @@
 # PLUMB MANIFEST — Single Source of Truth
-# Last updated: 2026-05-12 — v0.∞.∞
+# Last updated: 2026-05-13 — v0.∞.∞
 
 identity:
   name: plumb
@@ -67,6 +67,7 @@ build_order:
   - adapter_claude
   - adapter_opencode
   - adapter_host_editor
+  - design_system
 
 build_state:
   phase: 0
@@ -84,6 +85,7 @@ build_state:
     - adapter_pi
     - adapter_claude
     - adapter_opencode
+    - design_system
     - npm_publish
   next: tag_v0.1.2_push_for_ci_publish_optional
   blockers: []
@@ -100,6 +102,9 @@ notes:
 
 brand:
   palette: [slate, cistern, water, brass]
+  design: DESIGN.md
+  tailwind: tailwind.theme.json
+  dtcg: tokens.json
   villain: The Demo
   refusal: no-dashboards
   interface: logs-are-the-ui
