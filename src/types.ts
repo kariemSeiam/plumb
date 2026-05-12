@@ -59,3 +59,32 @@ export type LedgerEvent =
   | { type: 'task_completed'; taskId: string; timestamp: string }
   | { type: 'task_failed'; taskId: string; error: string; timestamp: string }
   | { type: 'task_cancelled'; taskId: string; timestamp: string };
+
+// ─── Persistent RPC Types ────────────────────────────────────────────────────
+// Correlated request/response over stdin/stdout for persistent agents (e.g. Pi).
+
+/** Content shape for host_tool_result (subset of AgentToolResult). */
+export type RpcHostToolResultContent = ReadonlyArray<Record<string, unknown>>;
+
+/** Parsed RPC response from stdout { type: "response" }. */
+export interface RpcParsedResponse {
+  command?: string;
+  success: boolean;
+  data?: unknown;
+  error?: string;
+}
+
+/**
+ * Executes a host_tool_call from the persistent agent.
+ * Must return fragments suitable for { result: { content } }.
+ * abortSignal cooperatively cancels when agent emits host_tool_cancel.
+ */
+export type RpcHostToolExecutor = (
+  ctx: {
+    requestId: string;
+    toolCallId: string;
+    toolName: string;
+    args: Record<string, unknown>;
+    abortSignal: AbortSignal;
+  },
+) => Promise<{ content: RpcHostToolResultContent; isError?: boolean }>;

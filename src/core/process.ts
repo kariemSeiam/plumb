@@ -5,6 +5,8 @@
 // breaking Pi's JSONL protocol where those codepoints are valid inside strings).
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import type { RpcHostToolExecutor, RpcParsedResponse } from '../types.ts';
 
 function log(level: string, msg: string, data?: Record<string, unknown>): void {
   const entry: Record<string, unknown> = {
@@ -165,6 +167,15 @@ export class PersistentProcess {
   private readyEmitted = false;
   private readyWaiters: Array<{ resolve: () => void; reject: (e: Error) => void }> = [];
 
+  /** RPC correlated request/response. */
+  private pendingResponses = new Map<string, {
+    settle: (r: RpcParsedResponse | null) => void;
+    timer: NodeJS.Timeout;
+  }>();
+  private rpcDefaultTimeoutMs = 120_000;
+  private rpcHostExecutor: RpcHostToolExecutor | undefined;
+  private hostAbortByRequestId = new Map<string, AbortController>();
+
   readonly onCrash?: (crashedTaskId: string, remainingCount: number) => void;
 
   constructor(
@@ -207,6 +218,52 @@ export class PersistentProcess {
     this.readyWaiters.length = 0;
   }
 
+  /** Replace / clear custom host tool execution (wired by adapters). */
+  setHostToolExecutor(exec: RpcHostToolExecutor | undefined): void {
+    this.rpcHostExecutor = exec;
+  }
+
+  /** Default timeout for correlated RPC awaits (milliseconds). */
+  setRpcTimeoutMs(ms: number): void {
+    this.rpcDefaultTimeoutMs = Math.max(1000, ms);
+  }
+
+  /**
+   * Send a correlated RPC command payload (stdin JSON line).
+   * Automatically assigns `id` if omitted.
+   * Resolves only on matching { type: "response", id } stdout line (consumed internally).
+   */
+  async sendRpcCommand(
+    command: Record<string, unknown>,
+    opts?: { timeoutMs?: number; correlationId?: string },
+  ): Promise<RpcParsedResponse> {
+    if (!this.isAlive || !this.proc?.stdin) {
+      throw new Error('Persistent process is not alive');
+    }
+    const cid = opts?.correlationId ?? (command.id !== undefined ? String(command.id) : randomUUID());
+    const body: Record<string, unknown> = { ...command, id: cid };
+    const timeoutMs = opts?.timeoutMs ?? this.rpcDefaultTimeoutMs;
+    const cmdHint = typeof body.type === 'string' ? body.type : 'rpc';
+
+    const responsePromise = new Promise<RpcParsedResponse>((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingResponses.delete(cid);
+        log('warn', 'rpc_timeout', { correlationId: cid, command: cmdHint, timeoutMs });
+        resolve({
+          success: false,
+          error: `RPC correlation timeout (${timeoutMs}ms) for command ${cmdHint}`,
+        });
+      }, timeoutMs);
+      this.pendingResponses.set(cid, {
+        settle: (r) => { clearTimeout(timer); resolve(r ?? { success: false, error: 'Empty RPC response' }); },
+        timer,
+      });
+    });
+
+    this.proc.stdin.write(JSON.stringify(body) + '\n');
+    return responsePromise;
+  }
+
   async ensure(): Promise<void> {
     if (this.proc && this.proc.exitCode === null) return;
 
@@ -239,6 +296,14 @@ export class PersistentProcess {
       }
       this.readyEmitted = false;
 
+      // Reject pending RPC awaits on crash
+      for (const [, pend] of this.pendingResponses) {
+        try { pend.settle({ success: false, error: 'Persistent process exited — RPC await cleared' }); } catch { /* noop */ }
+        clearTimeout(pend.timer);
+      }
+      this.pendingResponses.clear();
+      this.hostAbortByRequestId.clear();
+
       if (this.activeTaskId && this.taskHandlers.size > 0) {
         const crashedId = this.activeTaskId;
         const remaining = this.taskHandlers.size;
@@ -263,15 +328,84 @@ export class PersistentProcess {
     // Intercept protocol frames before task routing
     try {
       const parsed = JSON.parse(line);
-      if (parsed && typeof parsed === 'object' && parsed.type === 'ready') {
-        this.signalReady();
-        return; // swallow — not a task event
+      if (parsed && typeof parsed === 'object') {
+        if (this.dispatchProtocolFrame(parsed)) return; // swallowed by protocol handler
       }
-    } catch { /* not JSON or not a ready frame — fall through to task routing */ }
+    } catch { /* not JSON — fall through to task routing */ }
 
     if (!this.activeTaskId) return;
     const handler = this.taskHandlers.get(this.activeTaskId);
     handler?.(line);
+  }
+
+  /** Internal: handle protocol frames. Returns true if swallowed. */
+  private dispatchProtocolFrame(parsed: Record<string, unknown>): boolean {
+    if (parsed.type === 'ready') {
+      this.signalReady();
+      return true; // swallow
+    }
+
+    if (parsed.type === 'response') {
+      const rid = parsed.id !== undefined ? String(parsed.id) : '';
+      if (rid && this.pendingResponses.has(rid)) {
+        const slot = this.pendingResponses.get(rid)!;
+        this.pendingResponses.delete(rid);
+        const success = !!parsed.success;
+        const resp: RpcParsedResponse = success
+          ? { success: true, command: typeof parsed.command === 'string' ? parsed.command : undefined, data: parsed.data }
+          : { success: false, command: typeof parsed.command === 'string' ? parsed.command : undefined, error: typeof parsed.error === 'string' ? parsed.error : 'RPC failure' };
+        slot.settle(resp);
+        return true; // swallow
+      }
+      return false;
+    }
+
+    if (parsed.type === 'host_tool_call' && typeof parsed.id === 'string' && this.rpcHostExecutor) {
+      void this.invokeHostToolAndReply(parsed).catch(() => { /* reply sent inside */ });
+      return false; // don't swallow — adapter may also want to see it
+    }
+
+    if (parsed.type === 'host_tool_cancel' && typeof parsed.targetId === 'string') {
+      const ac = this.hostAbortByRequestId.get(parsed.targetId);
+      ac?.abort();
+      return false;
+    }
+
+    return false;
+  }
+
+  private async invokeHostToolAndReply(raw: Record<string, unknown>): Promise<void> {
+    const exec = this.rpcHostExecutor;
+    if (!exec || !this.proc?.stdin) return;
+
+    const id = typeof raw.id === 'string' ? raw.id : '';
+    const toolCallId = typeof raw.toolCallId === 'string' ? raw.toolCallId : '';
+    const toolName = typeof raw.toolName === 'string' ? raw.toolName : 'unknown_tool';
+    const args = typeof raw.arguments === 'object' && raw.arguments !== null ? raw.arguments as Record<string, unknown> : {};
+
+    const ac = new AbortController();
+    this.hostAbortByRequestId.set(id, ac);
+
+    const sendResult = (result: Array<Record<string, unknown>>, isError?: boolean): void => {
+      if (!this.proc?.stdin) return;
+      const frame: Record<string, unknown> = {
+        type: 'host_tool_result',
+        id,
+        result: { content: [...result] },
+      };
+      if (isError) frame.isError = true;
+      this.proc.stdin.write(JSON.stringify(frame) + '\n');
+    };
+
+    try {
+      const outcome = await exec({ requestId: id, toolCallId, toolName, args, abortSignal: ac.signal });
+      sendResult([...outcome.content], !!outcome.isError);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      sendResult([{ type: 'text', text: `Host tool error: ${msg}` }], true);
+    } finally {
+      this.hostAbortByRequestId.delete(id);
+    }
   }
 
   setLineHandler(taskId: string, handler: (line: string) => void): void {
@@ -339,6 +473,9 @@ export class PersistentProcess {
       this.proc = null;
       this.activeTaskId = null;
       this.writeBuffer.clear();
+      this.pendingResponses.clear();
+      this.hostAbortByRequestId.clear();
+      this.readyEmitted = false;
     }
   }
 
