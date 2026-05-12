@@ -1,10 +1,10 @@
 # PLUMB MANIFEST — Single Source of Truth
-# Last updated: 2026-05-12
+# Last updated: 2026-05-12 — v0.∞.∞
 
 identity:
   name: plumb
   npm_package: plumb-bridge
-  version: 0.1.2
+  version: 0.∞.∞
   repo: https://github.com/kariemSeiam/plumb
   tagline: "Quiet pipes for noisy agents"
   motto: "silent, accurate, always down"

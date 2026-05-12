@@ -46,8 +46,10 @@ export class CursorAdapter implements AgentAdapter {
   readonly displayName = 'Cursor';
   readonly mode = 'oneshot' as const;
 
-  /** Enable streaming partial output dedup. Default true — matches cursor-agent --print default. */
-  streamPartial = true;
+  /** Enable streaming partial output dedup. Default false — cursor-agent
+   *  with --print emits only consolidated assistant events (no streaming deltas).
+   *  Only enable when --stream-partial-output is added to buildArgs. */
+  streamPartial = false;
 
   skills = [
     { id: 'code', name: 'Code generation and editing', tags: ['code', 'edit', 'write', 'composer'] },
@@ -57,7 +59,10 @@ export class CursorAdapter implements AgentAdapter {
   ];
 
   buildArgs(_task: AgentTask, _config: PlumbConfig): string[] {
-    return ['--print', '--output-format', 'stream-json'];
+    const args = ['--print', '--output-format', 'stream-json', '--trust'];
+    const apiKey = process.env.CURSOR_API_KEY;
+    if (apiKey) args.push('--api-key', apiKey);
+    return args;
   }
 
   formatInput(task: AgentTask): string {
@@ -78,6 +83,11 @@ export class CursorAdapter implements AgentAdapter {
     // System events — metadata only, no content
     if (event.type === 'system') return [];
     if (event.type === 'user') return [];
+
+    // Thinking events — streaming thought content
+    if (event.type === 'thinking' && typeof event.text === 'string') {
+      return [{ type: 'text-delta', text: event.text }];
+    }
 
     // Assistant message — extract text content blocks
     if (event.type === 'assistant' && event.message?.content) {
