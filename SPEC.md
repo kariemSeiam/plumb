@@ -26,23 +26,27 @@ Plumb is not an agent. It has no LLM, no session memory, no orchestration. It sp
 src/
   types.ts           AgentTask, AdapterEvent, PlumbConfig, AgentAdapter, DetectionResult, LedgerEvent
   cli.ts             plumb wrap <cli> --port <n>
-  main.ts            entry
-  core/
-    ledger.ts        append-only JSONL → .plumb/ledger/{YYYY-MM-DD}.jsonl
-    process.ts       ProcessManager, persistent JSONL line reader
-    executor.ts      PlumbExecutor — @a2a-js/sdk AgentExecutor
-    server.ts        Express — Agent Card, JSON-RPC, REST, health
+  main.ts            Entry
   adapters/
+    stream-json.ts   Shared parseLine utilities (tryParseLine, extractContentText, etc.)
     echo.ts          EchoAdapter — `cat` — conformance gate
     pi.ts            PiAdapter — persistent JSONL-RPC
-    claude.ts        ClaudeAdapter — stream-json
-    cursor.ts        CursorAdapter — `cursor-agent --print` stream-json with dedup
+    claude.ts        ClaudeAdapter — stream-json (shared parser)
+    cursor.ts        CursorAdapter — `cursor-agent --print` stream-json (shared parser)
     opencode.ts      OpenCodeAdapter — `opencode` + run --format json
-    venom.ts         VenomAdapter — `venom -p` stream-json
+    venom.ts         VenomAdapter — `venom -p` stream-json (shared parser)
     generic.ts       GenericAdapter — fallback for any CLI
-    registry.ts      detectAdapter(cli) — order matters; generic is implicit last
+    registry.ts      detectAdapter() — order matters; generic is implicit last
+  core/
+    ledger.ts        append-only JSONL → .plumb/ledger/{YYYY-MM-DD}.jsonl
+    process.ts       ProcessManager, PersistentProcess (writeWhenActive)
+    executor.ts      PlumbExecutor — @a2a-js/sdk AgentExecutor
+    server.ts        Express — Agent Card, JSON-RPC, REST, health
+    task-store.ts    PlumbTaskStore — LRU + TTL bounded task store
 test/
-  conformance.test.ts   Phase 0 automated gates — `bun test test/conformance.test.ts`
+  conformance.test.ts   Phase 0 automated gates
+  task-store.test.ts    Unit tests for PlumbTaskStore
+  adapter-parse.test.ts  Unit tests for all adapter parseLine + stream-json utilities
 ```
 
 **Smoke check:**

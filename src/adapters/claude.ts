@@ -1,24 +1,15 @@
 // PLUMB — Claude Adapter
 // Wraps `claude --print --output-format stream-json --verbose`. Streaming JSONL.
 // Filters system/rate-limit events. Captures assistant messages and results.
+// Uses shared stream-json parser for content extraction.
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { AgentAdapter, AgentTask, AdapterEvent, DetectionResult, PlumbConfig } from '../types.ts';
+import { tryParseLine, extractContentText, textDelta, statusEvent, errorEvent } from './stream-json.ts';
+import type { ContentBlockEvent } from './stream-json.ts';
 
 const execFileAsync = promisify(execFile);
-
-interface ClaudeStreamEvent {
-  type: string;
-  subtype?: string;
-  message?: {
-    content?: Array<{ type: string; text?: string }>;
-  };
-  result?: string;
-  is_error?: boolean;
-  error?: string;
-  [key: string]: unknown;
-}
 
 export class ClaudeAdapter implements AgentAdapter {
   readonly id = 'claude';
@@ -43,43 +34,34 @@ export class ClaudeAdapter implements AgentAdapter {
   }
 
   parseLine(line: string): AdapterEvent[] {
-    if (!line.trim()) return [];
-
-    let event: ClaudeStreamEvent;
-    try {
-      event = JSON.parse(line);
-    } catch {
-      // Non-JSON line — treat as raw text
-      return [{ type: 'text-delta', text: line + '\n' }];
+    const { json, raw } = tryParseLine(line);
+    if (!json) {
+      if (!raw) return [];
+      return [textDelta(raw + '\n')];
     }
 
     // Filter non-content events
-    if (event.type === 'rate_limit_event') return [];
-    if (event.type === 'system') return [];
+    if (json.type === 'rate_limit_event' || json.type === 'system') return [];
 
     // Assistant message — extract text content
-    if (event.type === 'assistant' && event.message?.content) {
-      const texts = event.message.content
-        .filter(c => c.type === 'text' && c.text)
-        .map(c => c.text!);
-      if (texts.length > 0) {
-        return [{ type: 'text-delta', text: texts.join('\n') }];
-      }
-      return [];
+    if (json.type === 'assistant') {
+      const contentEvent = json as unknown as ContentBlockEvent;
+      const extracted = extractContentText(contentEvent);
+      return extracted ? [textDelta(extracted)] : [];
     }
 
     // Result event — final output
-    if (event.type === 'result') {
-      if (event.is_error || event.error) {
-        return [{ type: 'error', message: event.error ?? 'Unknown error' }];
+    if (json.type === 'result') {
+      if (json.is_error || json.error) {
+        return [errorEvent(json.error ?? 'Unknown error')];
       }
       // Result text is already captured from assistant message, signal completion
-      return [{ type: 'status', state: 'completed' }];
+      return [statusEvent('completed')];
     }
 
     // Error event
-    if (event.type === 'error') {
-      return [{ type: 'error', message: String(event.error ?? event.message ?? 'Unknown error') }];
+    if (json.type === 'error') {
+      return [errorEvent(String(json.error ?? json.message ?? 'Unknown error'))];
     }
 
     return [];
@@ -92,18 +74,8 @@ export class ClaudeAdapter implements AgentAdapter {
       try {
         const { stdout: vOut } = await execFileAsync('claude', ['--version'], { timeout: 5000 });
         version = vOut.trim().split('\n')[0] ?? 'unknown';
-      } catch {
-        // Version check failed
-      }
-      return {
-        binary: 'claude',
-        version,
-        path: stdout.trim(),
-        tier: 1,
-        protocol: 'stream-json',
-      };
-    } catch {
-      return null;
-    }
+      } catch { /* version check failed */ }
+      return { binary: 'claude', version, path: stdout.trim(), tier: 1, protocol: 'stream-json' };
+    } catch { return null; }
   }
 }

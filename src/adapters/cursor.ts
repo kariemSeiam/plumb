@@ -1,43 +1,18 @@
 // PLUMB — Cursor Adapter
 // Wraps `cursor-agent --print --output-format stream-json`. Stream-json protocol.
-// Tier 1. Handles streaming partial dedup (consolidated assistant events skipped
-// when streamPartial=true, which is the default for --print).
+// Tier 1. Uses shared stream-json parser for dedup with VENOM/Claude.
 //
-// Event types from cursor-agent stream-json:
-//   system, user, assistant, tool_call, result
-//
-// CRITICAL: With --stream-partial-output (default), cursor-agent emits streaming
-// deltas (each with timestamp_ms) followed by a consolidated assistant event
-// (NO timestamp_ms). The adapter skips consolidated events to avoid duplicate
-// output. If streamPartial=false, ALL assistant events are emitted.
+// CRITICAL: With --print (default), cursor-agent emits ONLY consolidated assistant
+// events (no streaming deltas). streamPartial MUST be false.
+// With --stream-partial-output, deltas have timestamp_ms and consolidated events
+// don't — in that mode, streamPartial=true correctly deduplicates.
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { AgentAdapter, AgentTask, AdapterEvent, DetectionResult, PlumbConfig } from '../types.ts';
+import { tryParseLine, extractContentText, isConsolidatedAssistant, textDelta, statusEvent, errorEvent } from './stream-json.ts';
 
 const execFileAsync = promisify(execFile);
-
-interface CursorStreamEvent {
-  type: string;
-  subtype?: string;
-  timestamp_ms?: number;
-  message?: {
-    role?: string;
-    content?: Array<{ type: string; text?: string }>;
-  };
-  tool_call?: {
-    shellToolCall?: { args?: Record<string, unknown>; result?: string };
-  };
-  call_id?: string;
-  result?: string;
-  is_error?: boolean;
-  error?: string;
-  session_id?: string;
-  model?: string;
-  duration_ms?: number;
-  usage?: Record<string, unknown>;
-  [key: string]: unknown;
-}
 
 export class CursorAdapter implements AgentAdapter {
   readonly id = 'cursor';
@@ -47,7 +22,7 @@ export class CursorAdapter implements AgentAdapter {
   readonly mode = 'oneshot' as const;
 
   /** Enable streaming partial output dedup. Default false — cursor-agent
-   *  with --print emits only consolidated assistant events (no streaming deltas).
+   *  with --print emits only consolidated events (no streaming deltas).
    *  Only enable when --stream-partial-output is added to buildArgs. */
   streamPartial = false;
 
@@ -70,69 +45,49 @@ export class CursorAdapter implements AgentAdapter {
   }
 
   parseLine(line: string): AdapterEvent[] {
-    if (!line.trim()) return [];
-
-    let event: CursorStreamEvent;
-    try {
-      event = JSON.parse(line);
-    } catch {
-      // Non-JSON — treat as raw text (cursor-agent rarely emits non-JSON)
-      return [{ type: 'text-delta', text: line + '\n' }];
+    const { json, raw } = tryParseLine(line);
+    if (!json) {
+      if (!raw) return [];
+      return [textDelta(raw + '\n')];
     }
 
-    // System events — metadata only, no content
-    if (event.type === 'system') return [];
-    if (event.type === 'user') return [];
+    // System/user events — metadata only
+    if (json.type === 'system' || json.type === 'user') return [];
 
     // Thinking events — streaming thought content
-    if (event.type === 'thinking' && typeof event.text === 'string') {
-      return [{ type: 'text-delta', text: event.text }];
+    if (json.type === 'thinking' && typeof (json as Record<string, unknown>).text === 'string') {
+      return [textDelta((json as Record<string, unknown>).text as string)];
     }
 
-    // Assistant message — extract text content blocks
-    if (event.type === 'assistant' && event.message?.content) {
-      // Streaming dedup: if streamPartial is enabled and this event has NO
-      // timestamp_ms, it's a consolidated event (duplicates streaming deltas).
-      // Skip it to avoid duplicate output.
-      if (this.streamPartial && !event.timestamp_ms) {
-        return [];
-      }
-      const texts = event.message.content
-        .filter((c): c is { type: string; text: string } =>
-          c.type === 'text' && typeof c.text === 'string'
-        )
-        .map(c => c.text);
-      if (texts.length > 0) {
-        return [{ type: 'text-delta', text: texts.join('\n') }];
+    // Assistant content blocks
+    if (json.type === 'assistant') {
+      const contentEvent = json as unknown as Parameters<typeof extractContentText>[0];
+      // Streaming dedup: skip consolidated events when streamPartial is on
+      if (isConsolidatedAssistant(contentEvent, this.streamPartial)) return [];
+      const extracted = extractContentText(contentEvent);
+      return extracted ? [textDelta(extracted)] : [];
+    }
+
+    // Tool call
+    if (json.type === 'tool_call') {
+      const tc = (json as Record<string, unknown>).tool_call as { shellToolCall?: { args?: Record<string, unknown>; result?: string } } | undefined;
+      if (tc?.shellToolCall) {
+        return [{ type: 'tool-call', tool: 'shell', input: tc.shellToolCall.args ?? {} }];
       }
       return [];
     }
 
-    // Tool call — emit tool-call event
-    if (event.type === 'tool_call') {
-      const tc = event.tool_call?.shellToolCall;
-      if (tc) {
-        return [{
-          type: 'tool-call',
-          tool: 'shell',
-          input: tc.args ?? {},
-        }];
+    // Result — completion or error
+    if (json.type === 'result') {
+      if (json.subtype === 'error' || json.is_error) {
+        return [errorEvent(json.error ?? 'Cursor execution failed')];
       }
-      return [];
-    }
-
-    // Result event — signals completion or error
-    if (event.type === 'result') {
-      if (event.subtype === 'error' || event.is_error) {
-        return [{ type: 'error', message: event.error ?? 'Cursor execution failed' }];
-      }
-      // Success result — task is complete
-      return [{ type: 'status', state: 'completed' }];
+      return [statusEvent('completed')];
     }
 
     // Error event
-    if (event.type === 'error') {
-      return [{ type: 'error', message: String(event.error ?? event.message ?? 'Unknown error') }];
+    if (json.type === 'error') {
+      return [errorEvent(String(json.error ?? json.message ?? 'Unknown error'))];
     }
 
     return [];
@@ -145,18 +100,8 @@ export class CursorAdapter implements AgentAdapter {
       try {
         const { stdout: vOut } = await execFileAsync('cursor-agent', ['--version'], { timeout: 5000 });
         version = vOut.trim().split('\n')[0] ?? 'unknown';
-      } catch {
-        // Version check failed
-      }
-      return {
-        binary: 'cursor-agent',
-        version,
-        path: stdout.trim(),
-        tier: 1,
-        protocol: 'stream-json',
-      };
-    } catch {
-      return null;
-    }
+      } catch { /* version check failed */ }
+      return { binary: 'cursor-agent', version, path: stdout.trim(), tier: 1, protocol: 'stream-json' };
+    } catch { return null; }
   }
 }

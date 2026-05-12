@@ -59,15 +59,18 @@ build_order:
   - core_process
   - core_executor
   - core_server
+  - core_task_store
   - adapter_echo
   - adapter_generic
   - cli
   - conformance_test
   - adapter_pi
   - adapter_claude
+  - adapter_cursor
   - adapter_opencode
-  - adapter_host_editor
-  - design_system
+  - adapter_venom
+  - adapter_stream_json_utility
+  - adapter_parse_test
 
 build_state:
   phase: 0
@@ -78,16 +81,20 @@ build_state:
     - core_process
     - core_executor
     - core_server
+    - core_task_store
     - adapter_echo
     - adapter_generic
     - cli
     - conformance_test
     - adapter_pi
     - adapter_claude
+    - adapter_cursor
     - adapter_opencode
-    - design_system
+    - adapter_venom
+    - adapter_stream_json_utility
+    - adapter_parse_test
     - npm_publish
-  next: tag_v0.1.2_push_for_ci_publish_optional
+  next: tag_v0.1.2_push_for_ci
   blockers: []
   ci_note: GitHub Actions `publish-npm.yml` needs repo secret NPM_TOKEN (granular publish) to publish on tag push.
 
@@ -102,9 +109,6 @@ notes:
 
 brand:
   palette: [slate, cistern, water, brass]
-  design: DESIGN.md
-  tailwind: tailwind.theme.json
-  dtcg: tokens.json
   villain: The Demo
   refusal: no-dashboards
   interface: logs-are-the-ui

@@ -51,14 +51,24 @@ Plumb/
 │   ├── main.ts            ← Entry point
 │   ├── core/
 │   │   ├── ledger.ts      ← Append-only JSONL (.plumb/ledger/{date}.jsonl)
-│   │   ├── process.ts     ← ProcessManager, attachJsonlReader
+│   │   ├── process.ts     ← ProcessManager, PersistentProcess (writeWhenActive)
 │   │   ├── executor.ts    ← PlumbExecutor (implements AgentExecutor)
-│   │   └── server.ts      ← createPlumbServer (Express + @a2a-js/sdk)
+│   │   ├── server.ts      ← createPlumbServer (Express + @a2a-js/sdk)
+│   │   └── task-store.ts  ← PlumbTaskStore (LRU + TTL bounded)
 │   └── adapters/
+│       ├── stream-json.ts ← Shared parseLine utilities (tryParseLine, extractContentText, etc.)
 │       ├── echo.ts        ← EchoAdapter (wraps cat) — Phase 0 conformance gate
+│       ├── pi.ts          ← PiAdapter — persistent JSONL-RPC
+│       ├── claude.ts      ← ClaudeAdapter — stream-json (shared parser)
+│       ├── cursor.ts      ← CursorAdapter — stream-json + dedup (shared parser)
+│       ├── opencode.ts    ← OpenCodeAdapter — json-stream
+│       ├── venom.ts       ← VenomAdapter — stream-json (shared parser)
 │       ├── generic.ts     ← GenericAdapter (text passthrough)
 │       └── registry.ts    ← detectAdapter() — maps CLI string to adapter
-├── test/                  ← conformance tests
+├── test/
+│   ├── conformance.test.ts   ← Phase 0 automated gates
+│   ├── task-store.test.ts    ← PlumbTaskStore unit tests
+│   └── adapter-parse.test.ts ← All adapter parseLine + stream-json utility tests
 ├── package.json
 ├── tsconfig.json
 ├── bunfig.toml
