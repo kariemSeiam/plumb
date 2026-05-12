@@ -1,5 +1,6 @@
-# Publish plumb-bridge to npm when you push a version tag (v*).
-# Add repository secret NPM_TOKEN (npm automation token with publish scope).
+# Publish plumb-bridge to npm when you push a version tag (v*) or run manually.
+# Secret NPM_TOKEN: npm granular access token with write/publish on this package;
+# must allow publishing under 2FA policy (automation / bypass 2FA per npm docs).
 name: Publish npm
 
 on:

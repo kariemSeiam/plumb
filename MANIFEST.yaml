@@ -75,7 +75,9 @@ build_state:
     - adapter_opencode
   next: npm_publish
   blockers:
-    - npm token required — local `npm login` OR GitHub Actions secret `NPM_TOKEN` (see `.github/workflows/publish-npm.yml`)
+    - >-
+      npm publish E403: enable 2FA and use `npm publish --otp=...`, or use a granular automation
+      token with publish + bypass 2FA; GitHub needs secret NPM_TOKEN with same kind of token
 
 success_metrics:
   agent_card_test: PASS
