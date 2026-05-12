@@ -144,3 +144,154 @@ export class ProcessManager {
 
   has(taskId: string): boolean { return this.processes.has(taskId); }
 }
+
+// ─── Persistent Process Manager ───────────────────────────────────────────
+// Single long-running process for adapters with mode: 'persistent'.
+// Tasks are queued. Lines route to active task. Task completes on protocol signal.
+
+export class PersistentProcess {
+  private proc: ChildProcess | null = null;
+  private detachReader: (() => void) | null = null;
+  private readonly cmd: string;
+  private readonly args: string[];
+  private readonly opts: { cwd?: string; env?: Record<string, string> };
+
+  private taskHandlers = new Map<string, (line: string) => void>();
+  private taskQueue: string[] = [];
+  private activeTaskId: string | null = null;
+  private writeBuffer = new Map<string, string[]>();
+
+  readonly onCrash?: (crashedTaskId: string, remainingCount: number) => void;
+
+  constructor(
+    cmd: string,
+    args: string[],
+    opts: { cwd?: string; env?: Record<string, string> },
+    callbacks?: { onCrash?: (crashedTaskId: string, remainingCount: number) => void },
+  ) {
+    this.cmd = cmd;
+    this.args = args;
+    this.opts = opts;
+    this.onCrash = callbacks?.onCrash;
+  }
+
+  async ensure(): Promise<void> {
+    if (this.proc && this.proc.exitCode === null) return;
+
+    this.proc = spawn(this.cmd, this.args, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      cwd: this.opts.cwd,
+      env: { ...(process.env as Record<string, string>), ...this.opts.env },
+    });
+
+    log('info', 'persistent_spawned', { cmd: this.cmd, pid: this.proc.pid });
+
+    this.detachReader = attachJsonlReader(this.proc.stdout!, (line) => {
+      this.routeLine(line);
+    });
+
+    this.proc.stderr!.on('data', () => {
+      // stderr from persistent process — ignored
+    });
+
+    this.proc.on('exit', () => {
+      log('warn', 'persistent_exited', { activeTaskId: this.activeTaskId, queuedCount: this.taskQueue.length });
+      if (this.detachReader) { this.detachReader(); this.detachReader = null; }
+
+      if (this.activeTaskId && this.taskHandlers.size > 0) {
+        const crashedId = this.activeTaskId;
+        const remaining = this.taskHandlers.size;
+        const errorLine = JSON.stringify({ type: 'error', message: 'Process crashed unexpectedly' });
+        for (const [, handler] of this.taskHandlers) {
+          try { handler(errorLine); } catch { /* swallow */ }
+        }
+        this.onCrash?.(crashedId, remaining);
+      }
+      this.proc = null;
+      this.activeTaskId = null;
+      this.writeBuffer.clear();
+    });
+
+    await new Promise<void>((resolve) => {
+      this.proc!.once('spawn', () => resolve());
+      this.proc!.once('error', () => { this.proc = null; resolve(); });
+    });
+  }
+
+  private routeLine(line: string): void {
+    if (!this.activeTaskId) return;
+    const handler = this.taskHandlers.get(this.activeTaskId);
+    handler?.(line);
+  }
+
+  setLineHandler(taskId: string, handler: (line: string) => void): void {
+    this.taskHandlers.set(taskId, handler);
+    if (!this.activeTaskId && this.taskQueue.length === 0) {
+      this.activeTaskId = taskId;
+      this.taskQueue.push(taskId);
+      this.flushBuffer(taskId);
+    } else {
+      this.taskQueue.push(taskId);
+    }
+  }
+
+  removeLineHandler(taskId: string): void {
+    this.taskHandlers.delete(taskId);
+    this.writeBuffer.delete(taskId);
+    this.taskQueue = this.taskQueue.filter(id => id !== taskId);
+    if (this.activeTaskId === taskId) {
+      this.activeTaskId = null;
+      this.advanceQueue();
+    }
+  }
+
+  private advanceQueue(): void {
+    if (this.activeTaskId) return;
+    while (this.taskQueue.length > 0) {
+      const next = this.taskQueue[0];
+      if (this.taskHandlers.has(next)) {
+        this.activeTaskId = next;
+        this.flushBuffer(next);
+        return;
+      }
+      this.taskQueue.shift();
+    }
+  }
+
+  private flushBuffer(taskId: string): void {
+    const chunks = this.writeBuffer.get(taskId);
+    if (!chunks || chunks.length === 0) return;
+    for (const chunk of chunks) this.write(chunk);
+    this.writeBuffer.delete(taskId);
+  }
+
+  writeWhenActive(taskId: string, data: string): void {
+    if (!this.proc) return;
+    if (this.activeTaskId === taskId) {
+      this.write(data);
+      return;
+    }
+    let chunks = this.writeBuffer.get(taskId);
+    if (!chunks) { chunks = []; this.writeBuffer.set(taskId, chunks); }
+    chunks.push(data);
+  }
+
+  write(data: string): void {
+    if (!this.proc) return;
+    this.proc.stdin!.write(data);
+  }
+
+  async kill(): Promise<void> {
+    if (this.proc) {
+      log('info', 'persistent_kill', {});
+      if (this.detachReader) { this.detachReader(); this.detachReader = null; }
+      this.proc.kill('SIGTERM');
+      this.proc = null;
+      this.activeTaskId = null;
+      this.writeBuffer.clear();
+    }
+  }
+
+  get isAlive(): boolean { return this.proc !== null && this.proc.exitCode === null; }
+  getActiveTaskId(): string | null { return this.activeTaskId; }
+}

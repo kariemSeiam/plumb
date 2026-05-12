@@ -8,13 +8,22 @@ import type { AgentAdapter, AgentTask, AdapterEvent, DetectionResult, PlumbConfi
 
 const execFileAsync = promisify(execFile);
 
+interface OpenCodePart {
+  type?: string;
+  text?: string;
+  reason?: string;
+  [key: string]: unknown;
+}
+
 interface OpenCodeEvent {
   type: string;
   content?: string;
   text?: string;
+  part?: OpenCodePart;
   delta?: string;
   error?: string;
   message?: string;
+  result?: string;
   [key: string]: unknown;
 }
 
@@ -36,8 +45,8 @@ export class OpenCodeAdapter implements AgentAdapter {
   }
 
   formatInput(task: AgentTask): string {
-    // opencode run takes message as positional args, but we pass via stdin for longer prompts
-    return task.message;
+    // OpenCode reads one JSON line per stdin message with `prompt` (see fangai OpenCodeAdapter).
+    return JSON.stringify({ prompt: task.message }) + '\n';
   }
 
   parseLine(line: string): AdapterEvent[] {
@@ -51,9 +60,10 @@ export class OpenCodeAdapter implements AgentAdapter {
       return [{ type: 'text-delta', text: line + '\n' }];
     }
 
-    // Text content events
+    // Text content — OpenCode JSON uses part.text for assistant output
     if (event.type === 'text' || event.type === 'content' || event.type === 'text-delta') {
-      const text = event.text ?? event.content ?? event.delta ?? '';
+      const fromPart = typeof event.part?.text === 'string' ? event.part.text : '';
+      const text = fromPart || (event.text ?? event.content ?? event.delta ?? '');
       if (text) return [{ type: 'text-delta', text }];
       return [];
     }
@@ -65,7 +75,12 @@ export class OpenCodeAdapter implements AgentAdapter {
       return [];
     }
 
-    // Session completed
+    // End of agent step — primary completion signal for `opencode run --format json`
+    if (event.type === 'step_finish' && event.part?.reason === 'stop') {
+      return [{ type: 'status', state: 'completed' }];
+    }
+
+    // Session / run completed (alternate event names)
     if (event.type === 'session.completed' || event.type === 'done' || event.type === 'complete') {
       return [{ type: 'status', state: 'completed' }];
     }

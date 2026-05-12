@@ -1,15 +1,16 @@
 // PLUMB — Executor
 // Bridges A2A tasks to CLI processes. Writes every lifecycle event to the ledger.
-// Stolen from fangai's BridgeExecutor, adapted: adds ledger hooks, removes Cursor specifics.
+// Supports oneshot (process-per-task) and persistent (single long-running process) modes.
 
 import { randomUUID } from 'node:crypto';
 import type { AgentExecutor, RequestContext, ExecutionEventBus } from '@a2a-js/sdk/server';
 import type { AgentAdapter, AgentTask, PlumbConfig } from '../types.ts';
-import { ProcessManager } from './process.ts';
+import { ProcessManager, PersistentProcess } from './process.ts';
 import { Ledger } from './ledger.ts';
 
 export class PlumbExecutor implements AgentExecutor {
   private pm = new ProcessManager();
+  private persistent: PersistentProcess | null = null;
   private adapter: AgentAdapter;
   private config: PlumbConfig;
   private ledger: Ledger;
@@ -47,7 +48,11 @@ export class PlumbExecutor implements AgentExecutor {
     this.contextByTaskId.set(taskId, contextId);
     const task: AgentTask = { id: taskId, message: text, context: { workdir: this.config.workdir } };
 
-    await this.executeOneshot(ctx, bus, task);
+    if (this.adapter.mode === 'persistent') {
+      await this.executePersistent(ctx, bus, task);
+    } else {
+      await this.executeOneshot(ctx, bus, task);
+    }
   }
 
   private async executeOneshot(
@@ -152,9 +157,100 @@ export class PlumbExecutor implements AgentExecutor {
     });
   }
 
+  private async executePersistent(
+    ctx: RequestContext,
+    bus: ExecutionEventBus,
+    task: AgentTask,
+  ): Promise<void> {
+    const { taskId, contextId } = ctx;
+    const { adapter, config, ledger } = this;
+    const timeout = config.taskTimeout ?? 300;
+
+    // Ensure persistent process is running
+    if (!this.persistent) {
+      const [cmd, ...cliArgs] = this.splitCli(config.cli);
+      const extraArgs = adapter.buildArgs(task, config);
+      this.persistent = new PersistentProcess(cmd!, [...cliArgs, ...extraArgs], {
+        cwd: config.workdir,
+        env: config.env,
+      });
+    }
+    await this.persistent.ensure();
+
+    bus.publish({
+      kind: 'task',
+      id: taskId,
+      contextId,
+      status: { state: 'working', timestamp: new Date().toISOString() },
+      history: [],
+    });
+
+    ledger.append({ type: 'task_running', taskId, timestamp: new Date().toISOString() });
+
+    let accumulated = '';
+    let settled = false;
+
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        this.persistent?.removeLineHandler(taskId);
+        ledger.append({ type: 'task_failed', taskId, error: `timed out after ${timeout}s`, timestamp: new Date().toISOString() });
+        this.fail(bus, taskId, contextId, `Task timed out after ${timeout}s`);
+        bus.finished();
+        resolve();
+      }, timeout * 1000);
+
+      this.persistent!.setLineHandler(taskId, (line) => {
+        if (settled) return;
+        const events = adapter.parseLine(line);
+        for (const ev of events) {
+          if (ev.type === 'text-delta' && ev.text) {
+            accumulated += ev.text;
+            ledger.append({ type: 'progress', taskId, text: ev.text, timestamp: new Date().toISOString() });
+            bus.publish({
+              kind: 'artifact-update', taskId, contextId,
+              artifact: { artifactId: 'stdout', name: 'output', parts: [{ kind: 'text', text: ev.text }] },
+              append: true, lastChunk: false,
+            });
+          }
+          if (ev.type === 'status' && ev.state === 'completed') {
+            settled = true;
+            clearTimeout(timer);
+            this.contextByTaskId.delete(taskId);
+            this.persistent?.removeLineHandler(taskId);
+            ledger.append({ type: 'task_completed', taskId, timestamp: new Date().toISOString() });
+            bus.publish({ kind: 'message', messageId: randomUUID(), role: 'agent', parts: [{ kind: 'text', text: accumulated || 'Done' }] });
+            bus.finished();
+            resolve();
+          }
+          if (ev.type === 'error') {
+            settled = true;
+            clearTimeout(timer);
+            this.contextByTaskId.delete(taskId);
+            this.persistent?.removeLineHandler(taskId);
+            ledger.append({ type: 'task_failed', taskId, error: ev.message, timestamp: new Date().toISOString() });
+            this.fail(bus, taskId, contextId, ev.message);
+            bus.finished();
+            resolve();
+          }
+        }
+      });
+
+      // Send task input to the persistent process
+      this.persistent!.writeWhenActive(taskId, adapter.formatInput(task));
+    });
+  }
+
   async cancelTask(taskId: string, bus: ExecutionEventBus): Promise<void> {
     const contextId = this.contextByTaskId.get(taskId) ?? taskId;
-    this.pm.kill(taskId, this.config.killTimeout ?? 5000);
+
+    if (this.adapter.mode === 'persistent' && this.persistent) {
+      this.persistent.removeLineHandler(taskId);
+    } else {
+      this.pm.kill(taskId, this.config.killTimeout ?? 5000);
+    }
+
     this.contextByTaskId.delete(taskId);
     this.ledger.append({ type: 'task_cancelled', taskId, timestamp: new Date().toISOString() });
     bus.publish({
@@ -165,13 +261,16 @@ export class PlumbExecutor implements AgentExecutor {
         timestamp: new Date().toISOString(),
       },
     });
-    this.contextByTaskId.delete(taskId);
     bus.finished();
   }
 
   async shutdown(): Promise<void> {
     this.contextByTaskId.clear();
     await this.pm.killAll();
+    if (this.persistent) {
+      await this.persistent.kill();
+      this.persistent = null;
+    }
   }
 
   private fail(

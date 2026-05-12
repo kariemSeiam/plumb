@@ -15,6 +15,7 @@ interface PiRpcEvent {
   success?: boolean;
   error?: string;
   delta?: string;
+  assistantMessageEvent?: { type?: string; delta?: string };
   [key: string]: unknown;
 }
 
@@ -23,7 +24,7 @@ export class PiAdapter implements AgentAdapter {
   readonly binary = 'pi';
   readonly tier = 1 as const;
   readonly displayName = 'Pi';
-  readonly mode = 'oneshot' as const;
+  readonly mode = 'persistent' as const;
 
   skills = [
     { id: 'code', name: 'Code generation and editing', tags: ['code', 'edit', 'write'] },
@@ -67,6 +68,18 @@ export class PiAdapter implements AgentAdapter {
       return [];
     }
 
+    // Pi message_update — streaming text from assistant
+    // Format: { type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'text' } }
+    if (event.type === 'message_update') {
+      const ame = event.assistantMessageEvent as { type?: string; delta?: string } | undefined;
+      if (ame?.type === 'text_delta' && typeof ame.delta === 'string') {
+        return [{ type: 'text-delta', text: ame.delta }];
+      }
+      const text = event.text ?? event.delta ?? event.content ?? '';
+      if (text) return [{ type: 'text-delta', text }];
+      return [];
+    }
+
     // Content block — full text
     if (event.type === 'content' || event.type === 'text') {
       const text = event.text ?? event.content ?? '';
@@ -90,8 +103,9 @@ export class PiAdapter implements AgentAdapter {
       return [{ type: 'error', message: event.error ?? 'Unknown error' }];
     }
 
-    // Done/complete signal
-    if (event.type === 'done' || event.type === 'complete' || event.type === 'finished') {
+    // Done/complete signals (Pi uses agent_end and turn_end)
+    if (event.type === 'done' || event.type === 'complete' || event.type === 'finished' ||
+        event.type === 'agent_end' || event.type === 'turn_end') {
       return [{ type: 'status', state: 'completed' }];
     }
 

@@ -1,15 +1,28 @@
 {
-  "name": "plumb",
+  "name": "plumb-bridge",
   "version": "0.1.0",
-  "module": "src/main.ts",
+  "description": "A2A bridge for CLI coding agents. Bun runtime. Example: plumb wrap cat --port 3001. Use plumb wrap opencode (not opencode run — the adapter adds run --format json).",
   "type": "module",
+  "module": "src/main.ts",
   "bin": {
     "plumb": "src/main.ts"
+  },
+  "files": [
+    "src",
+    "test",
+    "tsconfig.json",
+    "bunfig.toml"
+  ],
+  "engines": {
+    "bun": ">=1.1.0"
   },
   "scripts": {
     "start": "bun run src/main.ts",
     "wrap": "bun run src/main.ts wrap",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test test/conformance.test.ts",
+    "prepack": "npm run typecheck",
+    "prepublishOnly": "npm run test && npm run typecheck"
   },
   "dependencies": {
     "@a2a-js/sdk": "^0.3.13",

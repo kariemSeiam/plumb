@@ -1,4 +1,5 @@
 node_modules/
 .plumb/
+.venom/state/
 *.log
 .DS_Store
