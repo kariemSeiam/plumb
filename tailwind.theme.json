@@ -1,0 +1,75 @@
+{
+  "theme": {
+    "extend": {
+      "colors": {
+        "primary": "#0f172a",
+        "secondary": "#475569",
+        "tertiary": "#c9a96e",
+        "neutral": "#f1f5f9",
+        "cistern": "#0f172a",
+        "slate": "#475569",
+        "flow": "#64748b",
+        "water": "#f1f5f9",
+        "brass": "#c9a96e",
+        "warning": "#b45309",
+        "error": "#7f1d1d",
+        "success": "#3f6212"
+      },
+      "fontFamily": {
+        "heading": [
+          "Inter"
+        ],
+        "body": [
+          "Inter"
+        ],
+        "code": [
+          "JetBrains Mono"
+        ],
+        "label": [
+          "Inter"
+        ]
+      },
+      "fontSize": {
+        "heading": [
+          "1.5rem",
+          {
+            "letterSpacing": "-0.02em",
+            "fontWeight": "600"
+          }
+        ],
+        "body": [
+          "1rem",
+          {
+            "letterSpacing": "0em",
+            "fontWeight": "400"
+          }
+        ],
+        "code": [
+          "0.875rem",
+          {
+            "letterSpacing": "0em",
+            "fontWeight": "400"
+          }
+        ],
+        "label": [
+          "0.75rem",
+          {
+            "letterSpacing": "0.08em",
+            "fontWeight": "500"
+          }
+        ]
+      },
+      "borderRadius": {
+        "sm": "2px",
+        "md": "4px",
+        "lg": "6px"
+      },
+      "spacing": {
+        "sm": "4px",
+        "md": "8px",
+        "lg": "16px",
+        "xl": "24px"
+      }
+    }
+  }
+}
