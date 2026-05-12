@@ -94,8 +94,9 @@ build_state:
     - adapter_stream_json_utility
     - adapter_parse_test
     - npm_publish
-  next: tag_v0.1.2_push_for_ci
-  blockers: []
+    - persistent_wait_until_ready
+  next: persistent_rpc_commands
+  blockers: [npm_token]
   ci_note: GitHub Actions `publish-npm.yml` needs repo secret NPM_TOKEN (granular publish) to publish on tag push.
 
 success_metrics:

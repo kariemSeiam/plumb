@@ -176,6 +176,7 @@ export class PlumbExecutor implements AgentExecutor {
       });
     }
     await this.persistent.ensure();
+    await this.persistent.waitUntilReady(config.taskTimeout ? config.taskTimeout * 1000 : 300_000);
 
     bus.publish({
       kind: 'task',

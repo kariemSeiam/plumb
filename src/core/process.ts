@@ -161,6 +161,10 @@ export class PersistentProcess {
   private activeTaskId: string | null = null;
   private writeBuffer = new Map<string, string[]>();
 
+  /** Ready-frame detection — resolves waitUntilReady on { "type": "ready" }. */
+  private readyEmitted = false;
+  private readyWaiters: Array<{ resolve: () => void; reject: (e: Error) => void }> = [];
+
   readonly onCrash?: (crashedTaskId: string, remainingCount: number) => void;
 
   constructor(
@@ -173,6 +177,34 @@ export class PersistentProcess {
     this.args = args;
     this.opts = opts;
     this.onCrash = callbacks?.onCrash;
+  }
+
+  /**
+   * Resolves once the child emits { "type": "ready" } over stdout,
+   * or rejects on timeout after ensure() spawned the process.
+   * Returns immediately if already ready.
+   */
+  async waitUntilReady(timeoutMs = 30_000): Promise<void> {
+    if (this.readyEmitted) return;
+    await new Promise<void>((resolve, reject) => {
+      const t = setTimeout(
+        () => reject(new Error('Timed out waiting for persistent agent ready frame')),
+        timeoutMs,
+      );
+      this.readyWaiters.push({
+        resolve: () => { clearTimeout(t); resolve(); },
+        reject: (e: Error) => { clearTimeout(t); reject(e); },
+      });
+    });
+  }
+
+  private signalReady(): void {
+    if (this.readyEmitted) return;
+    this.readyEmitted = true;
+    for (const w of this.readyWaiters) {
+      try { w.resolve(); } catch { /* noop */ }
+    }
+    this.readyWaiters.length = 0;
   }
 
   async ensure(): Promise<void> {
@@ -198,6 +230,15 @@ export class PersistentProcess {
       log('warn', 'persistent_exited', { activeTaskId: this.activeTaskId, queuedCount: this.taskQueue.length });
       if (this.detachReader) { this.detachReader(); this.detachReader = null; }
 
+      // Reject pending ready-waiters on crash
+      if (this.readyWaiters.length > 0) {
+        for (const w of this.readyWaiters) {
+          try { w.reject(new Error('Persistent process exited — ready wait aborted')); } catch { /* noop */ }
+        }
+        this.readyWaiters.length = 0;
+      }
+      this.readyEmitted = false;
+
       if (this.activeTaskId && this.taskHandlers.size > 0) {
         const crashedId = this.activeTaskId;
         const remaining = this.taskHandlers.size;
@@ -219,6 +260,15 @@ export class PersistentProcess {
   }
 
   private routeLine(line: string): void {
+    // Intercept protocol frames before task routing
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed && typeof parsed === 'object' && parsed.type === 'ready') {
+        this.signalReady();
+        return; // swallow — not a task event
+      }
+    } catch { /* not JSON or not a ready frame — fall through to task routing */ }
+
     if (!this.activeTaskId) return;
     const handler = this.taskHandlers.get(this.activeTaskId);
     handler?.(line);
