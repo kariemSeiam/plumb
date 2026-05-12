@@ -273,6 +273,12 @@ export class PlumbExecutor implements AgentExecutor {
     }
   }
 
+  /** Persistent agent liveness. null for oneshot, true/false for persistent. */
+  isPersistentAlive(): boolean | null {
+    if (this.adapter.mode !== 'persistent') return null;
+    return this.persistent?.isAlive ?? false;
+  }
+
   private fail(
     bus: ExecutionEventBus,
     taskId: string,

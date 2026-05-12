@@ -6,16 +6,21 @@
 import { EchoAdapter } from './echo.ts';
 import { PiAdapter } from './pi.ts';
 import { ClaudeAdapter } from './claude.ts';
+import { CursorAdapter } from './cursor.ts';
 import { OpenCodeAdapter } from './opencode.ts';
 import { GenericAdapter } from './generic.ts';
 import type { AgentAdapter } from '../types.ts';
+
+import { VenomAdapter } from './venom.ts';
 
 // Priority order: first match wins. GenericAdapter always last.
 const KNOWN_ADAPTERS: AgentAdapter[] = [
   new EchoAdapter(),
   new PiAdapter(),
   new ClaudeAdapter(),
+  new CursorAdapter(),
   new OpenCodeAdapter(),
+  new VenomAdapter(),
 ];
 
 function escapeRegex(s: string): string {

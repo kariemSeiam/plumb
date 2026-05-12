@@ -4,7 +4,7 @@
 
 Stays aligned with **`MANIFEST.yaml`** (product state), **`src/types.ts`** (interfaces), and **`src/`** (behavior). If this file disagrees with those, **trust the code and manifest first**, then update this doc.
 
-**Last synced:** 2026-05-12 — `plumb-bridge@0.1.2`, Phase 0 metrics PASS, adapters: echo, pi, claude, opencode, generic.
+**Last synced:** 2026-05-12 — `plumb-bridge@0.1.2`, Phase 0 metrics PASS, adapters: echo, pi, claude, cursor, opencode, venom, generic.
 
 ---
 
@@ -36,7 +36,9 @@ src/
     echo.ts          EchoAdapter — `cat` — conformance gate
     pi.ts            PiAdapter — persistent JSONL-RPC
     claude.ts        ClaudeAdapter — stream-json
+    cursor.ts        CursorAdapter — `cursor-agent --print` stream-json with dedup
     opencode.ts      OpenCodeAdapter — `opencode` + run --format json
+    venom.ts         VenomAdapter — `venom -p` stream-json
     generic.ts       GenericAdapter — fallback for any CLI
     registry.ts      detectAdapter(cli) — order matters; generic is implicit last
 test/
@@ -74,7 +76,7 @@ interface AgentAdapter {
 }
 ```
 
-**Registry:** `src/adapters/registry.ts` tries **Echo → Pi → Claude → OpenCode** by matching `binary` against the `wrap` CLI string; if none match, **`GenericAdapter`** wraps the raw CLI string.
+**Registry:** `src/adapters/registry.ts` tries **Echo → Pi → Claude → Cursor → OpenCode → VENOM** by matching `binary` against the `wrap` CLI string; if none match, **`GenericAdapter`** wraps the raw CLI string.
 
 **Host IDE adapter:** not shipped — the packaged host application is not a headless agent CLI (`MANIFEST.yaml` notes).
 
@@ -105,7 +107,7 @@ From **`src/core/server.ts`**:
 |--------|------|--------|
 | GET | `/.well-known/agent-card.json` | public |
 | GET | `/.well-known/agent.json` | redirect → agent-card |
-| GET | `/health` | public |
+| GET | `/health` | public — includes `agentAlive` for persistent agents |
 | POST | `/a2a/jsonrpc` | JSON-RPC 2.0 (`message/send`, etc.) |
 | (mounted) | `/a2a/rest` | REST surface from SDK |
 

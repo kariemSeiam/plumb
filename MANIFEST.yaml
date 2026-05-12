@@ -32,10 +32,20 @@ adapters:
     mode: oneshot
     tier: 1
     status: active
+  cursor:
+    cli: cursor-agent
+    mode: oneshot
+    tier: 1
+    status: active
   opencode:
     cli: opencode
     mode: oneshot
     tier: 2
+    status: active
+  venom:
+    cli: venom
+    mode: oneshot
+    tier: 3
     status: active
   generic:
     cli: any

@@ -55,14 +55,19 @@ export function createPlumbServer(config: PlumbConfig & { adapter: AgentAdapter 
         res.redirect('/.well-known/agent-card.json');
       });
       app.get('/health', (_req: Request, res: Response) => {
-        res.json({
+        const health: Record<string, unknown> = {
           status: 'ok',
           agent: name,
           adapter: adapter.id,
           mode: adapter.mode,
           tier: adapter.tier,
           ledger: ledger.getPath(),
-        });
+        };
+        const alive = executor.isPersistentAlive();
+        if (alive !== null) {
+          health.agentAlive = alive;
+        }
+        res.json(health);
       });
 
       // Auth gate — protects A2A endpoints if apiKey is configured
