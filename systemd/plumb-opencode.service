@@ -1,0 +1,17 @@
+[Unit]
+Description=Plumb — OpenCode Agent (A2A Bridge, oneshot)
+After=network.target
+# Cutover: systemctl stop fang-opencode && systemctl start plumb-opencode
+
+[Service]
+Type=simple
+WorkingDirectory=/home/plumb
+ExecStart=/root/.bun/bin/bun run /home/plumb/src/main.ts wrap "opencode run -m zai/glm-5-turbo" --port 3004 --timeout 300
+EnvironmentFile=-/etc/plumb/agent.env
+Environment=HOME=/root
+Environment=PATH=/root/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/root/bin
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

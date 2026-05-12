@@ -1,0 +1,17 @@
+[Unit]
+Description=Plumb — Pi Agent (A2A Bridge, persistent)
+After=network.target
+# Cutover: systemctl stop fang-pi && systemctl start plumb-pi
+
+[Service]
+Type=simple
+WorkingDirectory=/home/plumb
+ExecStart=/root/.bun/bin/bun run /home/plumb/src/main.ts wrap "pi --mode rpc" --port 3001 --timeout 600
+EnvironmentFile=-/etc/plumb/agent.env
+Environment=HOME=/root
+Environment=PATH=/root/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/root/bin
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

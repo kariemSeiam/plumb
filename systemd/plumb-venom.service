@@ -1,0 +1,17 @@
+[Unit]
+Description=Plumb — VENOM Agent (A2A Bridge, oneshot)
+After=network.target
+# Cutover: systemctl stop fang-venom && systemctl start plumb-venom
+
+[Service]
+Type=simple
+WorkingDirectory=/home/plumb
+ExecStart=/root/.bun/bin/bun run /home/plumb/src/main.ts wrap "venom -p --output-format stream-json --permission-mode danger-full-access" --port 3005 --timeout 600 --workdir /home/venom-claw
+EnvironmentFile=-/etc/plumb/agent.env
+Environment=HOME=/root
+Environment=PATH=/root/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/root/bin
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

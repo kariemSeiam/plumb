@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Plumb — A2A bridge wrapper
+# Routes all commands to bun running from the Plumb source tree.
+# Install: cp plumb /usr/local/bin/plumb && chmod +x /usr/local/bin/plumb
+
+exec /root/.bun/bin/bun run /home/plumb/src/main.ts "$@"
