@@ -1,0 +1,73 @@
+# PLUMB — Complete Structure
+
+```
+plumb/
+├── ∞.md                    — The horizon (61 lines)
+├── README.md               — Entry point (98 lines)
+├── MANIFEST.md             — What Plumb IS and IS NOT (78 lines)
+├── CONTRACT.md             — The adapter interface (206 lines)
+│
+├── design/
+│   ├── DESIGN.md           — Visual language (146 lines)
+│   ├── VOICE.md            — How Plumb speaks (101 lines)
+│   └── PHYSICS.md          — Metaphor: plumb bob, gravity (109 lines)
+│
+├── core/
+│   ├── ARCHITECTURE.md     — End-to-end flow + crash resume + circuit breaker (222 lines)
+│   ├── PROTOCOL.md         — A2A endpoints, INK-lite, orphan cascade, crash resume (259 lines)
+│   ├── ADAPTERS.md         — All 7 adapters, isComplete, extractOutput, fixtures (177 lines)
+│   ├── LEDGER.md           — JSONL format, SIPHON, crash resume protocol (141 lines)
+│   ├── ERRORS.md           — 27 error codes, breaker errors, INK errors (118 lines)
+│   ├── CONFIG.md           — plumb.yaml format + breaker config + recovery (203 lines)
+│   └── PULSE.md            — Observability, metrics, circuit breaker pulses (193 lines)
+│
+├── fleet/
+│   ├── FLEET.md            — Multi-agent, routing, breaker-aware routes (169 lines)
+│   └── OPERATIONS.md       — systemd, Docker, crash recovery guide (198 lines)
+│
+├── soul/
+│   ├── PACT.md             — VENOM∞ integration + breaker + resume (140 lines)
+│   ├── EVOLUTION.md        — v0.1 → v1.0.0 → afterlife (167 lines)
+│   └── REFUSALS.md         — What never gets built (76 lines)
+│
+└── physical/
+    └── BOB.md              — The brass artifact (70 lines)
+```
+
+**21 files · 2,932 lines · Updated 2026-05-13** — reshaped with full Fang spec depth
+
+---
+
+## What changed
+
+| Area | Before | After |
+|------|--------|-------|
+| Adapter contract | 5 methods | 7 methods (+isComplete, +extractOutput) |
+| Error codes | 11 codes | 27 codes (added breaker, INK, orphan) |
+| Protocol | A2A basics | + INK-lite headers, orphan cascade, crash resume |
+| Architecture | basic flow | + boot sequence, circuit breaker, version probing |
+| Pulse | basic events | 25+ pulse kinds, circuit breaker, orphan, budget |
+| Config | agent+server | + circuit breaker, recovery, version pinning |
+| Circuit breaker | not mentioned | 5 files now describe it |
+| Crash resume | not mentioned | 6 files now describe it |
+| Fixtures | minimum bar | 19+ per adapter, 7 categories, golden transcripts |
+| Version probing | not mentioned | versions.json, knownGood/knownBad |
+
+---
+
+## Reading order (updated)
+
+1. `MANIFEST.md` — 2 minutes. What Plumb IS and IS NOT.
+2. `CONTRACT.md` — 5 minutes. The full adapter interface.
+3. `core/ARCHITECTURE.md` — 5 minutes. How it works.
+4. `core/PROTOCOL.md` — 5 minutes. The A2A surface.
+5. `core/ADAPTERS.md` — 3 minutes. The 7 adapters.
+6. `core/LEDGER.md` — 3 minutes. The append-only record.
+7. `core/ERRORS.md` — 3 minutes. All 27 error codes.
+8. `core/CONFIG.md` — 3 minutes. plumb.yaml reference.
+9. `core/PULSE.md` — 3 minutes. Observability, circuit breaker.
+10. `fleet/FLEET.md` — 3 minutes. Multi-agent operations.
+11. `fleet/OPERATIONS.md` — 3 minutes. Deployment, crash recovery.
+12. `soul/PACT.md` — 3 minutes. VENOM∞ integration, breaker, resume.
+
+**Total: ~45 minutes to know Plumb completely — circuit breakers, crash resume, version probing, and all.**
