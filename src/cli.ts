@@ -2,13 +2,14 @@
 // plumb wrap <cli> --port <n>
 // That's the interface. Nothing else.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import express from 'express';
 import { createPlumbServer } from './core/server.ts';
 import { detectAdapter, detectAll } from './adapters/registry.ts';
+import { loadFleetConfig, validateFleetConfig, agentToPlumbConfig, resolveConfigPath } from './config.ts';
 
 function readPackageVersion(): string {
   try {
@@ -33,6 +34,117 @@ const program = new Command()
   .name('plumb')
   .description('Quiet pipes for noisy agents. A2A bridge for any CLI coding agent.')
   .version(readPackageVersion());
+
+// ─── Fleet commands (Wave 2) ────────────────────────────────────────────
+
+const fleet = program
+  .command('fleet')
+  .description('Manage multi-agent fleet (plumb.yaml)');
+
+fleet
+  .command('validate')
+  .description('Parse and validate plumb.yaml')
+  .option('-c, --config <path>', 'Path to plumb.yaml')
+  .action(async (opts: { config?: string }) => {
+    const path = resolveConfigPath(opts.config);
+    if (!path) {
+      log('error', 'config_not_found', { searched: opts.config ?? '(default paths)' });
+      process.exit(1);
+    }
+
+    try {
+      const config = loadFleetConfig(path);
+      if (!config) {
+        log('error', 'config_empty', { path });
+        process.exit(1);
+      }
+
+      log('info', 'config_parsed', { path, agentCount: config.agents.length });
+
+      const validation = await validateFleetConfig(config);
+      for (const agent of validation.agents) {
+        if (agent.errors.length > 0) {
+          for (const e of agent.errors) log('error', 'validation_error', { agent: agent.id, error: e });
+        }
+        if (agent.warnings.length > 0) {
+          for (const w of agent.warnings) log('warn', 'validation_warning', { agent: agent.id, warning: w });
+        }
+      }
+
+      if (!validation.valid) {
+        log('error', 'validation_failed', { agentCount: config.agents.length });
+        process.exit(1);
+      }
+
+      log('info', 'validation_passed', { agentCount: config.agents.length });
+    } catch (err) {
+      log('error', 'config_error', { error: err instanceof Error ? err.message : String(err) });
+      process.exit(1);
+    }
+  });
+
+fleet
+  .command('up')
+  .description('Boot all agents defined in plumb.yaml')
+  .option('-c, --config <path>', 'Path to plumb.yaml')
+  .action(async (opts: { config?: string }) => {
+    const path = resolveConfigPath(opts.config);
+    if (!path) {
+      log('error', 'config_not_found', { searched: opts.config ?? '(default paths)' });
+      process.exit(1);
+    }
+
+    try {
+      const config = loadFleetConfig(path);
+      if (!config) {
+        log('error', 'config_empty', { path });
+        process.exit(1);
+      }
+
+      const validation = await validateFleetConfig(config);
+      if (!validation.valid) {
+        for (const agent of validation.agents) {
+          for (const e of agent.errors) log('error', 'validation_error', { agent: agent.id, error: e });
+        }
+        log('error', 'fleet_up_aborted', { reason: 'validation_failed' });
+        process.exit(1);
+      }
+
+      // Spawn all agents
+      const servers: Array<{ id: string; port: number }> = [];
+      for (const agent of config.agents) {
+        const adapter = detectAdapter(agent.cli);
+        log('info', 'fleet_spawning', { id: agent.id, cli: agent.cli, port: agent.port, adapter: adapter.id });
+
+        const { executor, setupApp } = createPlumbServer({
+          ...agentToPlumbConfig(agent),
+          adapter,
+        });
+
+        const app = express();
+        setupApp(app);
+
+        app.listen(agent.port, () => {
+          log('info', 'fleet_agent_up', { id: agent.id, port: agent.port });
+        });
+
+        servers.push({ id: agent.id, port: agent.port });
+      }
+
+      log('info', 'fleet_up', { agentCount: servers.length, ports: servers.map(s => s.port) });
+
+      // Block until SIGINT/SIGTERM
+      await new Promise<void>(() => {
+        process.on('SIGINT', () => { log('info', 'fleet_shutdown', {}); process.exit(0); });
+        process.on('SIGTERM', () => { log('info', 'fleet_shutdown', {}); process.exit(0); });
+      });
+    } catch (err) {
+      log('error', 'fleet_up_error', { error: err instanceof Error ? err.message : String(err) });
+      process.exit(1);
+    }
+  });
+
+// ─── Wrap command ────────────────────────────────────────────────────
 
 program
   .command('wrap <cli>')

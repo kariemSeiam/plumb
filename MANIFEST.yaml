@@ -73,8 +73,8 @@ build_order:
   - adapter_parse_test
 
 build_state:
-  phase: 0
-  current: github_main
+  phase: 2
+  current: wave-2-config
   done:
     - types
     - core_ledger
@@ -97,9 +97,18 @@ build_state:
     - persistent_wait_until_ready
     - persistent_rpc_commands
     - cursor_session_store
-  next: fleet_parity_achieved
-  blockers: [npm_token]
-  ci_note: GitHub Actions `publish-npm.yml` needs repo secret NPM_TOKEN (granular publish) to publish on tag push.
+    - a2a_boundary_normalization
+    - host_tool_frame_leak_fix
+    - detect_all_wiring
+    - docs_drift_scrub
+  current_wave: >
+    Wave 2: Config + Fleet Boot.
+    Declarative plumb.yaml + multi-agent boot story.
+    No Pulse. No circuit breaker. No crash resume.
+    Config is enabling constraint for every later wave.
+  next: config_yaml_parsing
+  blockers: []
+  ci_note: Next npm publish after Wave 2 ships plumb fleet validate + up.
 
 success_metrics:
   agent_card_test: PASS
