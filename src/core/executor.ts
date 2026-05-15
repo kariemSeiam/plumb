@@ -183,7 +183,8 @@ export class PlumbExecutor implements AgentExecutor {
       });
     }
     await this.persistent.ensure();
-    await this.persistent.waitUntilReady(config.taskTimeout ? config.taskTimeout * 1000 : 300_000);
+    // Short ready-wait (30s). If agent never emits ready frame but is alive, proceed.
+    await this.persistent.waitUntilReady(30_000);
 
     bus.publish({
       kind: 'task',
