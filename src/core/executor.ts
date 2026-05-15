@@ -25,9 +25,11 @@ export class PlumbExecutor implements AgentExecutor {
   async execute(ctx: RequestContext, bus: ExecutionEventBus): Promise<void> {
     const { taskId, contextId } = ctx;
 
-    const parts = (ctx.userMessage.parts ?? []) as Array<{ kind?: string; text?: string }>;
+    // Normalize A2A part boundary: accept both `type` (A2A standard) and `kind` (Plumb internal)
+    type PartEntry = { kind?: string; type?: string; text?: string };
+    const parts = (ctx.userMessage.parts ?? []) as PartEntry[];
     const text = parts
-      .filter(p => p.kind === 'text' && typeof p.text === 'string')
+      .filter(p => (p.kind === 'text' || p.type === 'text') && typeof p.text === 'string')
       .map(p => p.text!)
       .join('\n').trim();
 
@@ -153,6 +155,10 @@ export class PlumbExecutor implements AgentExecutor {
         },
       );
 
+      // Notify adapter of user message (Cursor session tracking)
+      if (typeof (adapter as Record<string, unknown>).setUserMessage === 'function') {
+        (adapter as { setUserMessage(msg: string): void }).setUserMessage(task.message);
+      }
       this.pm.stdin(taskId, adapter.formatInput(task), true);
     });
   }
@@ -238,6 +244,10 @@ export class PlumbExecutor implements AgentExecutor {
         }
       });
 
+      // Notify adapter of user message (Cursor session tracking)
+      if (typeof (adapter as Record<string, unknown>).setUserMessage === 'function') {
+        (adapter as { setUserMessage(msg: string): void }).setUserMessage(task.message);
+      }
       // Send task input to the persistent process
       this.persistent!.writeWhenActive(taskId, adapter.formatInput(task));
     });

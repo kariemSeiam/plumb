@@ -4,7 +4,7 @@
 
 import type { Request, Response, NextFunction } from 'express';
 import express from 'express';
-import { DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
+import { DefaultRequestHandler } from '@a2a-js/sdk/server';
 import {
   agentCardHandler,
   jsonRpcHandler,

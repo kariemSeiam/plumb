@@ -362,7 +362,7 @@ export class PersistentProcess {
 
     if (parsed.type === 'host_tool_call' && typeof parsed.id === 'string' && this.rpcHostExecutor) {
       void this.invokeHostToolAndReply(parsed).catch(() => { /* reply sent inside */ });
-      return false; // don't swallow — adapter may also want to see it
+      return true; // swallow — protocol frame, not agent output
     }
 
     if (parsed.type === 'host_tool_cancel' && typeof parsed.targetId === 'string') {
