@@ -23,7 +23,6 @@ export interface PlumbConfig {
   name?: string;
   workdir?: string;
   env?: Record<string, string>;
-  maxConcurrent?: number;
   taskTimeout?: number;
   killTimeout?: number;
   apiKey?: string;

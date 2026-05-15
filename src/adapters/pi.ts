@@ -92,10 +92,10 @@ export class PiAdapter implements AgentAdapter {
       if (event.success === false && event.error) {
         return [{ type: 'error', message: event.error }];
       }
-      // Successful response with content
+      // Successful response — emit text if present, always complete
       const text = event.text ?? event.content ?? '';
-      if (text) return [{ type: 'text-delta', text }];
-      return [];
+      if (text) return [{ type: 'text-delta', text }, { type: 'status', state: 'completed' }];
+      return [{ type: 'status', state: 'completed' }];
     }
 
     // Error event
