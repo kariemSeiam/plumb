@@ -14,7 +14,7 @@ No silent failures. 31 codes. Every one tested.
 | Code | HTTP | Meaning | Recovery |
 |------|------|---------|----------|
 | `SERVER_INTERNAL` | 500 | Unhandled server error | Restart Plumb. File an issue. |
-| `SERVER_OVERLOAD` | 503 | Concurrent task limit reached | Retry with backoff. Increase maxConcurrent. |
+| `SERVER_OVERLOAD` | 503 | Concurrent task limit reached | Retry with backoff. (Future: configurable limit.) |
 | `SERVER_SHUTDOWN` | 503 | Server is shutting down | Retry. The window is short. |
 | `SERVER_CONFIG_INVALID` | 500 | Config validation failed at boot (e.g., missing auth on exposed host) | Fix plumb.yaml. Reboot. |
 

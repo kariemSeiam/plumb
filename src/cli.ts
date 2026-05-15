@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import express from 'express';
 import { createPlumbServer } from './core/server.ts';
-import { detectAdapter } from './adapters/registry.ts';
+import { detectAdapter, detectAll } from './adapters/registry.ts';
 
 function readPackageVersion(): string {
   try {
@@ -57,6 +57,13 @@ program
 
     const adapter = detectAdapter(cli);
     log('info', 'adapter_detected', { cli, adapter: adapter.id, mode: adapter.mode, tier: adapter.tier });
+
+    // Boot-time adapter matrix — logs all registered adapters once
+    detectAll().then(results => {
+      log('info', 'adapter_matrix', { results });
+    }).catch(err => {
+      log('warn', 'adapter_matrix_error', { error: err instanceof Error ? err.message : String(err) });
+    });
 
     const { executor, setupApp } = createPlumbServer({
       adapter,
