@@ -84,6 +84,72 @@ fleet
   });
 
 fleet
+  .command('status')
+  .description('Check health of all fleet agents')
+  .option('-c, --config <path>', 'Path to plumb.yaml')
+  .option('--timeout <ms>', 'Per-agent health check timeout', '5000')
+  .action(async (opts: { config?: string; timeout?: string }) => {
+    const path = resolveConfigPath(opts.config);
+    if (!path) {
+      log('error', 'config_not_found', { searched: opts.config ?? '(default paths)' });
+      process.exit(1);
+    }
+
+    const config = loadFleetConfig(path);
+    if (!config) {
+      log('error', 'config_empty', { path });
+      process.exit(1);
+    }
+
+    const timeout = parseInt(opts.timeout ?? '5000', 10);
+    log('info', 'fleet_status_check', { agentCount: config.agents.length });
+
+    const checks = config.agents.map(async (agent) => {
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), timeout);
+
+        const url = `http://localhost:${agent.port}/health`;
+        const res = await fetch(url, { signal: ctrl.signal });
+        clearTimeout(timer);
+
+        if (res.ok) {
+          const body = await res.json().catch(() => ({})) as Record<string, unknown>;
+          const bodyStatus = typeof body.status === 'string' ? body.status : 'ok';
+          log('info', 'fleet_agent_healthy', {
+            id: agent.id,
+            port: agent.port,
+            status: bodyStatus,
+          });
+          return { id: agent.id, port: agent.port, healthy: true, status: bodyStatus };
+        }
+
+        log('warn', 'fleet_agent_unhealthy', { id: agent.id, port: agent.port, httpStatus: res.status });
+        return { id: agent.id, port: agent.port, healthy: false, status: `HTTP ${res.status}` };
+      } catch (err) {
+        log('warn', 'fleet_agent_down', {
+          id: agent.id,
+          port: agent.port,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return { id: agent.id, port: agent.port, healthy: false, status: 'unreachable' };
+      }
+    });
+
+    const results = await Promise.all(checks);
+    const healthy = results.filter(r => r.healthy).length;
+    const total = results.length;
+
+    log('info', 'fleet_status_summary', {
+      healthy,
+      total,
+      allHealthy: healthy === total,
+    });
+
+    if (healthy < total) process.exit(1);
+  });
+
+fleet
   .command('up')
   .description('Boot all agents defined in plumb.yaml')
   .option('-c, --config <path>', 'Path to plumb.yaml')
