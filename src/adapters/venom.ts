@@ -32,7 +32,7 @@ export class VenomAdapter implements AgentAdapter {
   ];
 
   buildArgs(_task: AgentTask, _config: PlumbConfig): string[] {
-    return ['-p', '--output-format', 'stream-json', '--permission-mode', 'danger-full-access'];
+    return ['--output-format', 'json', '--permission-mode', 'danger-full-access'];
   }
 
   formatInput(task: AgentTask): string {
