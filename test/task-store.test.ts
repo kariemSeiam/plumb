@@ -8,6 +8,8 @@ import type { Task } from '@a2a-js/sdk';
 function makeTask(id: string, state: string): Task {
   return {
     id,
+    contextId: id,
+    kind: 'task' as const,
     status: { state, timestamp: new Date().toISOString() },
     history: [],
     artifacts: [],

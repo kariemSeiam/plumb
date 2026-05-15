@@ -156,8 +156,9 @@ export class PlumbExecutor implements AgentExecutor {
       );
 
       // Notify adapter of user message (Cursor session tracking)
-      if (typeof (adapter as Record<string, unknown>).setUserMessage === 'function') {
-        (adapter as { setUserMessage(msg: string): void }).setUserMessage(task.message);
+      const adapterAny = adapter as unknown as Record<string, unknown>;
+      if (typeof adapterAny.setUserMessage === 'function') {
+        (adapterAny as { setUserMessage(msg: string): void }).setUserMessage(task.message);
       }
       this.pm.stdin(taskId, adapter.formatInput(task), true);
     });
@@ -245,8 +246,9 @@ export class PlumbExecutor implements AgentExecutor {
       });
 
       // Notify adapter of user message (Cursor session tracking)
-      if (typeof (adapter as Record<string, unknown>).setUserMessage === 'function') {
-        (adapter as { setUserMessage(msg: string): void }).setUserMessage(task.message);
+      const adapterAny = adapter as unknown as Record<string, unknown>;
+      if (typeof adapterAny.setUserMessage === 'function') {
+        (adapterAny as { setUserMessage(msg: string): void }).setUserMessage(task.message);
       }
       // Send task input to the persistent process
       this.persistent!.writeWhenActive(taskId, adapter.formatInput(task));
