@@ -111,7 +111,8 @@ fleet
       }
 
       // Spawn all agents
-      const servers: Array<{ id: string; port: number }> = [];
+      type FleetServer = { id: string; port: number; executor: import('./core/executor.ts').PlumbExecutor; server: import('http').Server };
+      const fleetServers: FleetServer[] = [];
       for (const agent of config.agents) {
         const adapter = detectAdapter(agent.cli);
         log('info', 'fleet_spawning', { id: agent.id, cli: agent.cli, port: agent.port, adapter: adapter.id });
@@ -124,20 +125,28 @@ fleet
         const app = express();
         setupApp(app);
 
-        app.listen(agent.port, () => {
+        const server = app.listen(agent.port, () => {
           log('info', 'fleet_agent_up', { id: agent.id, port: agent.port });
         });
 
-        servers.push({ id: agent.id, port: agent.port });
+        fleetServers.push({ id: agent.id, port: agent.port, executor, server });
       }
 
-      log('info', 'fleet_up', { agentCount: servers.length, ports: servers.map(s => s.port) });
+      log('info', 'fleet_up', { agentCount: fleetServers.length, ports: fleetServers.map(s => s.port) });
 
-      // Block until SIGINT/SIGTERM
-      await new Promise<void>(() => {
-        process.on('SIGINT', () => { log('info', 'fleet_shutdown', {}); process.exit(0); });
-        process.on('SIGTERM', () => { log('info', 'fleet_shutdown', {}); process.exit(0); });
-      });
+      // Graceful shutdown — mirrors wrap command behavior
+      const fleetShutdown = async () => {
+        log('info', 'fleet_shutdown', {});
+        await Promise.allSettled(fleetServers.map(s => s.executor.shutdown()));
+        await Promise.allSettled(fleetServers.map(s => new Promise<void>(r => s.server.close(() => r()))));
+        process.exit(0);
+      };
+
+      process.on('SIGINT', fleetShutdown);
+      process.on('SIGTERM', fleetShutdown);
+
+      // Block until signal
+      await new Promise<void>(() => {});
     } catch (err) {
       log('error', 'fleet_up_error', { error: err instanceof Error ? err.message : String(err) });
       process.exit(1);
