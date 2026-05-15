@@ -22,7 +22,6 @@ agents:
     tier: 1
     workdir: "/home/user/project"
     timeout: 600
-    maxConcurrent: 1          # persistent mode forced to 1
     labels: [scan, fast, cheap]
     env:
       PI_API_KEY: "${PI_API_KEY}"
@@ -34,7 +33,6 @@ agents:
     mode: oneshot
     tier: 1
     timeout: 300
-    maxConcurrent: 2
     labels: [review, deep, reason]
 
   cursor:
@@ -43,7 +41,6 @@ agents:
     mode: oneshot
     tier: 1
     timeout: 300
-    maxConcurrent: 2
     labels: [build, edit, implement]
     sessionStore: true         # enable cold recap
 
@@ -53,7 +50,6 @@ agents:
     mode: oneshot
     tier: 2
     timeout: 300
-    maxConcurrent: 1
     labels: [research, web]
 
   venom:
@@ -62,7 +58,6 @@ agents:
     mode: oneshot
     tier: 1
     timeout: 120
-    maxConcurrent: 1
     labels: [custom, cli, tool]
 
 circuitBreaker:
@@ -109,7 +104,6 @@ server:
 | `tier` | No | auto-detected | 1, 2, or 3 |
 | `workdir` | No | CWD | Working directory |
 | `timeout` | No | 300 | Task timeout in seconds |
-| `maxConcurrent` | No | 4 (oneshot), 1 (persistent) | Max simultaneous processes |
 | `labels` | No | `[]` | Routing labels |
 | `env` | No | `{}` | Environment variables (supports `${VAR}`) |
 | `sessionStore` | No | false | Enable session store (Cursor only) |

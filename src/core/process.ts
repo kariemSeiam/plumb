@@ -368,7 +368,7 @@ export class PersistentProcess {
     if (parsed.type === 'host_tool_cancel' && typeof parsed.targetId === 'string') {
       const ac = this.hostAbortByRequestId.get(parsed.targetId);
       ac?.abort();
-      return false;
+      return true; // swallow — control frame, not agent output
     }
 
     return false;

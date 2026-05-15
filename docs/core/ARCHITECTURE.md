@@ -101,25 +101,10 @@ Cons: State leaks if agent crashes. One process must handle all.
 
 ---
 
-## Concurrency gate
-
-```
-┌────────────────────────────────┐
-│         MAX CONCURRENT         │  ← configurable, default 4
-│                                │
-│  ┌────┐  ┌────┐  ┌────┐  ┌────┐
-│  │ T1 │  │ T2 │  │ T3 │  │ T4 │  ← active processes
-│  └────┘  └────┘  └────┘  └────┘
-│                                │
-│  ┌────┐  ┌────┐               │
-│  │ T5 │  │ T6 │               │  ← queued, waiting for slot
-│  └────┘  └────┘               │
-└────────────────────────────────┘
-```
-
-When a slot opens, the next task in queue spawns. If queue exceeds configurable max (default 100), new tasks are rejected with `SERVER_OVERLOAD`.
-
-Persistent mode ignores the concurrency gate — one process handles all tasks sequentially.
+> **⚠️ Future design.** Concurrency gating (configurable max processes per adapter)
+> is planned but not yet implemented. Currently Plumb runs one task at a time
+> per adapter process. Queue depth is bounded by `PlumbTaskStore` (100 max,
+> 60 min retention).
 
 ---
 
