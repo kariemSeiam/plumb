@@ -1,0 +1,41 @@
+# PLUMB FLEET — VENOM∞ distributed nervous system
+version: "1"
+agents:
+  - id: pi
+    cli: pi --mode rpc
+    port: 3001
+    mode: persistent
+    timeout: 600
+    name: pi
+
+  - id: cursor
+    cli: cursor-agent --print
+    port: 3003
+    mode: oneshot
+    timeout: 300
+    name: cursor
+
+  - id: claude
+    cli: claude
+    port: 3000
+    mode: oneshot
+    name: claude
+
+  - id: opencode
+    cli: opencode
+    port: 3002
+    mode: oneshot
+    name: opencode
+
+  - id: venom
+    cli: venom
+    port: 3004
+    mode: oneshot
+    tier: 3
+    name: venom
+
+  - id: generic
+    cli: any
+    port: 3005
+    mode: oneshot
+    name: generic

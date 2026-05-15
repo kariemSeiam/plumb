@@ -198,10 +198,15 @@ export class PersistentProcess {
   async waitUntilReady(timeoutMs = 30_000): Promise<void> {
     if (this.readyEmitted) return;
     await new Promise<void>((resolve, reject) => {
-      const t = setTimeout(
-        () => reject(new Error('Timed out waiting for persistent agent ready frame')),
-        timeoutMs,
-      );
+      const t = setTimeout(() => {
+        // If process is alive but never emitted the ready frame, proceed anyway.
+        // Some persistent agents (e.g. Pi in RPC mode) don't output {"type":"ready"}.
+        if (this.isAlive) {
+          resolve();
+        } else {
+          reject(new Error('Timed out waiting for persistent agent ready frame'));
+        }
+      }, timeoutMs);
       this.readyWaiters.push({
         resolve: () => { clearTimeout(t); resolve(); },
         reject: (e: Error) => { clearTimeout(t); reject(e); },
