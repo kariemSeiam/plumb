@@ -2,7 +2,7 @@ node_modules/
 .plumb/
 .venom/
 .cursor/
-playgorund/
+playground/
 
 *.tgz
 *.log
@@ -11,3 +11,4 @@ playgorund/
 *.db-shm
 *.db-wal
 .pi/
+~/

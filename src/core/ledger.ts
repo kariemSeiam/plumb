@@ -9,21 +9,22 @@ import type { LedgerEvent } from '../types.ts';
 const LEDGER_DIR = '.plumb/ledger';
 
 export class Ledger {
+  private currentDate: string;
   private path: string;
 
   constructor() {
     if (!existsSync(LEDGER_DIR)) {
       mkdirSync(LEDGER_DIR, { recursive: true });
     }
-    const date = new Date().toISOString().slice(0, 10);
-    this.path = join(LEDGER_DIR, `${date}.jsonl`);
+    this.currentDate = new Date().toISOString().slice(0, 10);
+    this.path = join(LEDGER_DIR, `${this.currentDate}.jsonl`);
   }
 
   append(event: LedgerEvent): void {
     try {
+      this.rollIfNeeded();
       appendFileSync(this.path, JSON.stringify(event) + '\n');
     } catch {
-      // Ledger failure is non-fatal. Log to stderr and continue.
       process.stderr.write(JSON.stringify({
         ts: new Date().toISOString(),
         l: 'error',
@@ -34,6 +35,15 @@ export class Ledger {
   }
 
   getPath(): string {
+    this.rollIfNeeded();
     return this.path;
+  }
+
+  private rollIfNeeded(): void {
+    const today = new Date().toISOString().slice(0, 10);
+    if (today !== this.currentDate) {
+      this.currentDate = today;
+      this.path = join(LEDGER_DIR, `${today}.jsonl`);
+    }
   }
 }
