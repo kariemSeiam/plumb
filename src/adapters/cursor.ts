@@ -54,6 +54,8 @@ export class CursorAdapter implements AgentAdapter {
 
   /** Accumulated assistant text for current task (recap storage). */
   private taskAssistantForRecap = '';
+  /** Last user message for turn recording. */
+  private lastUserMessage = '';
 
   skills = [
     { id: 'code', name: 'Code generation and editing', tags: ['code', 'edit', 'write', 'composer'] },
@@ -190,7 +192,7 @@ export class CursorAdapter implements AgentAdapter {
       // Record completed turn for cold recap
       this.sessionStore.recordCompletedTurn(
         this.sessionStore.lastSession,
-        (this as { _lastUserMessage?: string })._lastUserMessage ?? '',
+        this.lastUserMessage,
         this.taskAssistantForRecap,
       );
       this.resetRecapTaskState();
@@ -220,7 +222,7 @@ export class CursorAdapter implements AgentAdapter {
 
   /** Set the user message for turn recording. Call before execute(). */
   setUserMessage(msg: string): void {
-    (this as { _lastUserMessage?: string })._lastUserMessage = msg;
+    this.lastUserMessage = msg;
   }
 
   private resetRecapTaskState(): void {
