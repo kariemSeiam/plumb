@@ -2,6 +2,7 @@
 // Express + @a2a-js/sdk. Agent Card. JSON-RPC. REST. Health.
 // Derived from prior bridge layout: Plumb naming, ledger injection, no vendor IDE coupling.
 
+import { timingSafeEqual } from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
 import express from 'express';
 import { DefaultRequestHandler } from '@a2a-js/sdk/server';
@@ -81,8 +82,11 @@ export function createPlumbServer(config: PlumbConfig & { adapter: AgentAdapter 
 
       // Auth gate — protects A2A endpoints if apiKey is configured
       if (config.apiKey) {
+        const expected = Buffer.from(`Bearer ${config.apiKey}`);
         app.use((req: Request, res: Response, next: NextFunction) => {
-          if (req.headers.authorization !== `Bearer ${config.apiKey}`) {
+          const header = req.headers.authorization ?? '';
+          const given = Buffer.from(header);
+          if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
             return res.status(401).json({ error: { message: 'Unauthorized' } });
           }
           next();
