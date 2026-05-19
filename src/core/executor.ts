@@ -4,9 +4,12 @@
 
 import { randomUUID } from 'node:crypto';
 import type { AgentExecutor, RequestContext, ExecutionEventBus } from '@a2a-js/sdk/server';
-import type { AgentAdapter, AgentTask, PlumbConfig } from '../types.ts';
+import type { AgentAdapter, AgentTask, AdapterEvent, PlumbConfig } from '../types.ts';
 import { ProcessManager, PersistentProcess } from './process.ts';
 import { Ledger } from './ledger.ts';
+
+/** Fang Post-Parse hook: transforms events after parseLine, before executor processes them. */
+export type FangPostParse = (events: AdapterEvent[], ctx: { taskId: string; adapterId: string }) => AdapterEvent[];
 
 export class PlumbExecutor implements AgentExecutor {
   private pm = new ProcessManager();
@@ -16,10 +19,13 @@ export class PlumbExecutor implements AgentExecutor {
   private ledger: Ledger;
   private contextByTaskId = new Map<string, string>();
 
-  constructor(adapter: AgentAdapter, config: PlumbConfig, ledger: Ledger) {
+  private fangHook?: FangPostParse;
+
+  constructor(adapter: AgentAdapter, config: PlumbConfig, ledger: Ledger, fangHook?: FangPostParse) {
     this.adapter = adapter;
     this.config = config;
     this.ledger = ledger;
+    this.fangHook = fangHook;
   }
 
   async execute(ctx: RequestContext, bus: ExecutionEventBus): Promise<void> {
@@ -57,6 +63,68 @@ export class PlumbExecutor implements AgentExecutor {
     }
   }
 
+  /** Unified event processor — shared by both oneshot and persistent loops.
+   *  Applies Fang post-parse hook first, then handles each event type. */
+  private handleEvents(
+    rawEvents: AdapterEvent[],
+    accumulated: { text: string },
+    settled: { value: boolean },
+    taskId: string,
+    contextId: string,
+    ledger: Ledger,
+    bus: ExecutionEventBus,
+    timer: ReturnType<typeof setTimeout>,
+    resolve: () => void,
+    cleanup: () => void,
+  ): void {
+    // Fang Post-Parse: transform events before processing
+    const events = this.fangHook
+      ? this.fangHook(rawEvents, { taskId, adapterId: this.adapter.id })
+      : rawEvents;
+
+    for (const ev of events) {
+      if (ev.type === 'text-delta' && ev.text) {
+        accumulated.text += ev.text;
+        ledger.append({ type: 'progress', taskId, text: ev.text, timestamp: new Date().toISOString() });
+        bus.publish({
+          kind: 'artifact-update', taskId, contextId,
+          artifact: { artifactId: 'stdout', name: 'output', parts: [{ kind: 'text', text: ev.text }] },
+          append: true, lastChunk: false,
+        });
+      }
+      if (ev.type === 'tool-call' && ev.tool) {
+        const label = `[${ev.tool}]${ev.input ? ' ' + JSON.stringify(ev.input) : ''}\n`;
+        accumulated.text += label;
+        ledger.append({ type: 'progress', taskId, text: label, timestamp: new Date().toISOString() });
+        bus.publish({ kind: 'artifact-update', taskId, contextId, artifact: { artifactId: 'stdout', name: 'output', parts: [{ kind: 'text', text: label }] }, append: true, lastChunk: false });
+      }
+      if (ev.type === 'tool-result' && ev.output) {
+        const label = `→ ${ev.isError ? '✗' : '✓'} ${ev.output}\n`;
+        accumulated.text += label;
+        ledger.append({ type: 'progress', taskId, text: label, timestamp: new Date().toISOString() });
+        bus.publish({ kind: 'artifact-update', taskId, contextId, artifact: { artifactId: 'stdout', name: 'output', parts: [{ kind: 'text', text: label }] }, append: true, lastChunk: false });
+      }
+      if (ev.type === 'status' && ev.state === 'completed') {
+        settled.value = true;
+        clearTimeout(timer);
+        cleanup();
+        ledger.append({ type: 'task_completed', taskId, timestamp: new Date().toISOString() });
+        bus.publish({ kind: 'message', messageId: randomUUID(), role: 'agent', parts: [{ kind: 'text', text: accumulated.text || 'Done' }] });
+        bus.finished();
+        resolve();
+      }
+      if (ev.type === 'error') {
+        settled.value = true;
+        clearTimeout(timer);
+        cleanup();
+        ledger.append({ type: 'task_failed', taskId, error: ev.message, timestamp: new Date().toISOString() });
+        this.fail(bus, taskId, contextId, ev.message);
+        bus.finished();
+        resolve();
+      }
+    }
+  }
+
   private async executeOneshot(
     ctx: RequestContext,
     bus: ExecutionEventBus,
@@ -78,13 +146,13 @@ export class PlumbExecutor implements AgentExecutor {
 
     const [cmd, ...cliArgs] = this.splitCli(config.cli);
     const extraArgs = adapter.buildArgs(task, config);
-    let accumulated = '';
-    let settled = false;
+    const accumulated = { text: '' };
+    const settled = { value: false };
 
     return new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
-        if (settled) return;
-        settled = true;
+        if (settled.value) return;
+        settled.value = true;
         this.pm.kill(taskId);
         ledger.append({ type: 'task_failed', taskId, error: `timed out after ${timeout}s`, timestamp: new Date().toISOString() });
         this.fail(bus, taskId, contextId, `Task timed out after ${timeout}s`);
@@ -97,49 +165,11 @@ export class PlumbExecutor implements AgentExecutor {
         { cwd: config.workdir, env: config.env },
         {
           onLine: (line) => {
-            if (settled) return;
+            if (settled.value) return;
             const events = adapter.parseLine(line);
-            for (const ev of events) {
-              if (ev.type === 'text-delta' && ev.text) {
-                accumulated += ev.text;
-                ledger.append({ type: 'progress', taskId, text: ev.text, timestamp: new Date().toISOString() });
-                bus.publish({
-                  kind: 'artifact-update', taskId, contextId,
-                  artifact: { artifactId: 'stdout', name: 'output', parts: [{ kind: 'text', text: ev.text }] },
-                  append: true, lastChunk: false,
-                });
-              }
-              if (ev.type === 'tool-call' && ev.tool) {
-                const label = `[${ev.tool}]${ev.input ? ' ' + JSON.stringify(ev.input) : ''}\n`;
-                accumulated += label;
-                ledger.append({ type: 'progress', taskId, text: label, timestamp: new Date().toISOString() });
-                bus.publish({ kind: 'artifact-update', taskId, contextId, artifact: { artifactId: 'stdout', name: 'output', parts: [{ kind: 'text', text: label }] }, append: true, lastChunk: false });
-              }
-              if (ev.type === 'tool-result' && ev.output) {
-                const label = `→ ${ev.isError ? '✗' : '✓'} ${ev.output}\n`;
-                accumulated += label;
-                ledger.append({ type: 'progress', taskId, text: label, timestamp: new Date().toISOString() });
-                bus.publish({ kind: 'artifact-update', taskId, contextId, artifact: { artifactId: 'stdout', name: 'output', parts: [{ kind: 'text', text: label }] }, append: true, lastChunk: false });
-              }
-              if (ev.type === 'status' && ev.state === 'completed') {
-                settled = true;
-                clearTimeout(timer);
-                this.contextByTaskId.delete(taskId);
-                ledger.append({ type: 'task_completed', taskId, timestamp: new Date().toISOString() });
-                bus.publish({ kind: 'message', messageId: randomUUID(), role: 'agent', parts: [{ kind: 'text', text: accumulated || 'Done' }] });
-                bus.finished();
-                resolve();
-              }
-              if (ev.type === 'error') {
-                settled = true;
-                clearTimeout(timer);
-                this.contextByTaskId.delete(taskId);
-                ledger.append({ type: 'task_failed', taskId, error: ev.message, timestamp: new Date().toISOString() });
-                this.fail(bus, taskId, contextId, ev.message);
-                bus.finished();
-                resolve();
-              }
-            }
+            this.handleEvents(events, accumulated, settled, taskId, contextId, ledger, bus, timer, resolve, () => {
+              this.contextByTaskId.delete(taskId);
+            });
           },
           onError: (text) => {
             ledger.append({ type: 'log', taskId, level: 'error', text, timestamp: new Date().toISOString() });
@@ -150,12 +180,12 @@ export class PlumbExecutor implements AgentExecutor {
           },
           onExit: (code) => {
             clearTimeout(timer);
-            if (settled) { resolve(); return; }
-            settled = true;
+            if (settled.value) { resolve(); return; }
+            settled.value = true;
             this.contextByTaskId.delete(taskId);
             if (code === 0) {
               ledger.append({ type: 'task_completed', taskId, timestamp: new Date().toISOString() });
-              bus.publish({ kind: 'message', messageId: randomUUID(), role: 'agent', parts: [{ kind: 'text', text: accumulated || '(no output)' }] });
+              bus.publish({ kind: 'message', messageId: randomUUID(), role: 'agent', parts: [{ kind: 'text', text: accumulated.text || '(no output)' }] });
             } else {
               const errMsg = `Process exited with code ${code}`;
               ledger.append({ type: 'task_failed', taskId, error: errMsg, timestamp: new Date().toISOString() });
@@ -208,13 +238,13 @@ export class PlumbExecutor implements AgentExecutor {
 
     ledger.append({ type: 'task_running', taskId, timestamp: new Date().toISOString() });
 
-    let accumulated = '';
-    let settled = false;
+    const accumulated = { text: '' };
+    const settled = { value: false };
 
     return new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
-        if (settled) return;
-        settled = true;
+        if (settled.value) return;
+        settled.value = true;
         this.persistent?.removeLineHandler(taskId);
         ledger.append({ type: 'task_failed', taskId, error: `timed out after ${timeout}s`, timestamp: new Date().toISOString() });
         this.fail(bus, taskId, contextId, `Task timed out after ${timeout}s`);
@@ -223,51 +253,13 @@ export class PlumbExecutor implements AgentExecutor {
       }, timeout * 1000);
 
       this.persistent!.setLineHandler(taskId, (line) => {
-        if (settled) return;
+        if (settled.value) return;
         const events = adapter.parseLine(line);
-        for (const ev of events) {
-          if (ev.type === 'text-delta' && ev.text) {
-            accumulated += ev.text;
-            ledger.append({ type: 'progress', taskId, text: ev.text, timestamp: new Date().toISOString() });
-            bus.publish({
-              kind: 'artifact-update', taskId, contextId,
-              artifact: { artifactId: 'stdout', name: 'output', parts: [{ kind: 'text', text: ev.text }] },
-              append: true, lastChunk: false,
-            });
-          }
-          if (ev.type === 'tool-call' && ev.tool) {
-            const label = `[${ev.tool}]${ev.input ? ' ' + JSON.stringify(ev.input) : ''}\n`;
-            accumulated += label;
-            ledger.append({ type: 'progress', taskId, text: label, timestamp: new Date().toISOString() });
-            bus.publish({ kind: 'artifact-update', taskId, contextId, artifact: { artifactId: 'stdout', name: 'output', parts: [{ kind: 'text', text: label }] }, append: true, lastChunk: false });
-          }
-          if (ev.type === 'tool-result' && ev.output) {
-            const label = `→ ${ev.isError ? '✗' : '✓'} ${ev.output}\n`;
-            accumulated += label;
-            ledger.append({ type: 'progress', taskId, text: label, timestamp: new Date().toISOString() });
-            bus.publish({ kind: 'artifact-update', taskId, contextId, artifact: { artifactId: 'stdout', name: 'output', parts: [{ kind: 'text', text: label }] }, append: true, lastChunk: false });
-          }
-          if (ev.type === 'status' && ev.state === 'completed') {
-            settled = true;
-            clearTimeout(timer);
-            this.contextByTaskId.delete(taskId);
-            this.persistent?.removeLineHandler(taskId);
-            ledger.append({ type: 'task_completed', taskId, timestamp: new Date().toISOString() });
-            bus.publish({ kind: 'message', messageId: randomUUID(), role: 'agent', parts: [{ kind: 'text', text: accumulated || 'Done' }] });
-            bus.finished();
-            resolve();
-          }
-          if (ev.type === 'error') {
-            settled = true;
-            clearTimeout(timer);
-            this.contextByTaskId.delete(taskId);
-            this.persistent?.removeLineHandler(taskId);
-            ledger.append({ type: 'task_failed', taskId, error: ev.message, timestamp: new Date().toISOString() });
-            this.fail(bus, taskId, contextId, ev.message);
-            bus.finished();
-            resolve();
-          }
-        }
+        this.handleEvents(events, accumulated, settled, taskId, contextId, ledger, bus, timer, resolve, () => {
+          this.contextByTaskId.delete(taskId);
+          this.persistent?.removeLineHandler(taskId);
+        });
+
       });
 
       // Notify adapter of user message (Cursor session tracking)
