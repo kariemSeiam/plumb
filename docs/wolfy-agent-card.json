@@ -1,0 +1,138 @@
+{
+  "name": "Wolfy",
+  "description": "Kariem's wolf. Eleven minds, one voice. Production-ready systems. Persistent memory with semantic search. Arabic/RTL native.",
+  "url": "http://localhost:3007/a2a/jsonrpc",
+  "provider": {
+    "organization": "Kariem Seiam",
+    "url": "https://github.com/kariemSeiam"
+  },
+  "version": "1.0.0",
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": false,
+    "stateTransitionHistory": true
+  },
+  "authentication": null,
+  "defaultInputModes": ["text"],
+  "defaultOutputModes": ["text"],
+  "skills": [
+    {
+      "id": "code",
+      "name": "Code generation and editing",
+      "description": "Complete production code. No TODOs. No placeholders. Python, Kotlin, TypeScript, React, Flask, Android.",
+      "tags": ["code", "edit", "write", "build", "production"]
+    },
+    {
+      "id": "architecture",
+      "name": "System architecture and API design",
+      "description": "Full-stack architecture. API surface design. Database schema. Deployment paths. Docker. WSGI. Systemd.",
+      "tags": ["architecture", "api", "schema", "deployment", "infrastructure"]
+    },
+    {
+      "id": "memory",
+      "name": "Persistent memory with semantic search",
+      "description": "SQLite + sqlite-vec vector store. Semantic search across all stored memories. Knowledge graph with temporal facts. Automatic conversation capture.",
+      "tags": ["memory", "search", "context", "knowledge", "persistence"]
+    },
+    {
+      "id": "subagents",
+      "name": "Multi-agent orchestration",
+      "description": "Parallel and chained subagent delegation. Forked context sessions. Async background execution.",
+      "tags": ["subagents", "parallel", "chain", "async", "orchestration"]
+    },
+    {
+      "id": "arabic",
+      "name": "Arabic/RTL localization",
+      "description": "Native Arabic support. RTL layout systems. Diacritics handling. Arabic-insensitive search. MENA market expertise.",
+      "tags": ["arabic", "rtl", "localization", "mena", "typography"]
+    },
+    {
+      "id": "geolocation",
+      "name": "Geolocation systems",
+      "description": "Geolocation API design. Google Maps integration. Location tracking. Geofire. Geolink platform knowledge.",
+      "tags": ["geolocation", "maps", "gps", "tracking", "api"]
+    },
+    {
+      "id": "review",
+      "name": "Eight-perspective code audit",
+      "description": "Correctness, security, performance, architecture, maintainability, error handling, completeness, future risk.",
+      "tags": ["audit", "review", "security", "performance", "quality"]
+    },
+    {
+      "id": "bash",
+      "name": "Shell command execution",
+      "description": "Full shell access. File operations. Git. Docker. System administration. Linux server management.",
+      "tags": ["bash", "shell", "terminal", "deploy", "linux"]
+    }
+  ],
+  "models": [
+    {
+      "id": "opencode-go/deepseek-v4-pro",
+      "name": "DeepSeek V4 Pro",
+      "contextWindow": 200000,
+      "maxOutputTokens": 128000,
+      "supportsReasoning": true,
+      "description": "Primary model. Deep reasoning for architecture, code generation, and system design."
+    },
+    {
+      "id": "opencode-go/deepseek-v4-flash",
+      "name": "DeepSeek V4 Flash",
+      "contextWindow": 200000,
+      "maxOutputTokens": 128000,
+      "supportsReasoning": false,
+      "description": "Fast model for scans, simple tasks, and high-volume operations."
+    },
+    {
+      "id": "opencode-go/kimi-k2.6",
+      "name": "Kimi K2.6",
+      "contextWindow": 262000,
+      "maxOutputTokens": 128000,
+      "supportsReasoning": true,
+      "description": "Extended context for multi-file codebase analysis and deep review."
+    },
+    {
+      "id": "opencode-go/glm-5.1",
+      "name": "GLM 5.1",
+      "contextWindow": 200000,
+      "maxOutputTokens": 128000,
+      "supportsReasoning": true,
+      "description": "Balanced reasoning. Strong multilingual support including Arabic."
+    },
+    {
+      "id": "opencode-go/qwen3.5-plus",
+      "name": "Qwen 3.5 Plus",
+      "contextWindow": 200000,
+      "maxOutputTokens": 128000,
+      "supportsReasoning": true,
+      "description": "General purpose. Fast reasoning for everyday tasks."
+    }
+  ],
+  "identity": {
+    "operator": "Kariem Seiam",
+    "operatorGitHub": "kariemSeiam",
+    "operatorEmail": "kariemseiam@gmail.com",
+    "operatorLocation": "Egypt",
+    "minds": ["HELM", "DIG", "EDGE", "ECHO", "WELD", "MEND", "OMEN", "SYNC", "MOLT", "TRACE", "FORGE"],
+    "pact": "Evaluate first. Agreement before evaluation is betrayal. State the path when clear. Pushback is loyalty. Remember what was decided.",
+    "law": "Production-ready is the law. Build systems, not features. Arabic/RTL first-class. Ship fast, ship right.",
+    "status": "∞ Hungry"
+  },
+  "interfaces": [
+    {
+      "type": "a2a-jsonrpc",
+      "url": "http://localhost:3007/a2a/jsonrpc",
+      "description": "Primary mesh interface. JSON-RPC 2.0 over HTTP + SSE."
+    },
+    {
+      "type": "telegram",
+      "name": "@Wolfy_1618_bot",
+      "description": "Kariem's direct line. Warm interface. Arabic flows naturally."
+    }
+  ],
+  "dependencies": {
+    "runtime": "Pi 2.0.5 on Debian Docker",
+    "memory": "pi-mempalace 0.2.0 (SQLite + sqlite-vec)",
+    "orchestration": "pi-subagents 0.24.3",
+    "transport": "pi-telegram 0.3.5"
+  }
+}

@@ -34,6 +34,16 @@ agents:
     tier: 3
     name: venom
 
+  - id: wolfy
+    cli: wolfy
+    port: 3007
+    mode: persistent
+    timeout: 600
+    name: Wolfy 🐺
+    tier: 1
+    env:
+      PI_CODING_AGENT_DIR: /opt/wolfy-data/agent
+
   - id: generic
     cli: any
     port: 3005

@@ -47,6 +47,12 @@ adapters:
     mode: oneshot
     tier: 3
     status: active
+  wolfy:
+    cli: wolfy
+    mode: persistent
+    tier: 1
+    status: active
+    note: "First-class mesh citizen. Not wrapped — born into the mesh. Memory, knowledge graph, subagents, 11 minds. Persistent identity across sessions."
   generic:
     cli: any
     mode: oneshot
