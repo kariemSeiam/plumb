@@ -101,18 +101,6 @@ export class PlumbExecutor implements AgentExecutor {
             const events = adapter.parseLine(line);
             for (const ev of events) {
               if (ev.type === 'text-delta' && ev.text) {
-            if (ev.type === "tool-call" && ev.tool) {
-              const label = `[${ev.tool}]${ev.input ? " " + JSON.stringify(ev.input) : ""}\n`;
-              accumulated += label;
-              ledger.append({ type: "progress", taskId, text: label, timestamp: new Date().toISOString() });
-              bus.publish({ kind: "artifact-update", taskId, contextId, artifact: { artifactId: "stdout", name: "output", parts: [{ kind: "text", text: label }] }, append: true, lastChunk: false });
-            }
-            if (ev.type === "tool-result" && ev.output) {
-              const label = `→ ${ev.isError ? "✗" : "✓"} ${ev.output}\n`;
-              accumulated += label;
-              ledger.append({ type: "progress", taskId, text: label, timestamp: new Date().toISOString() });
-              bus.publish({ kind: "artifact-update", taskId, contextId, artifact: { artifactId: "stdout", name: "output", parts: [{ kind: "text", text: label }] }, append: true, lastChunk: false });
-            }
                 accumulated += ev.text;
                 ledger.append({ type: 'progress', taskId, text: ev.text, timestamp: new Date().toISOString() });
                 bus.publish({
@@ -120,6 +108,18 @@ export class PlumbExecutor implements AgentExecutor {
                   artifact: { artifactId: 'stdout', name: 'output', parts: [{ kind: 'text', text: ev.text }] },
                   append: true, lastChunk: false,
                 });
+              }
+              if (ev.type === 'tool-call' && ev.tool) {
+                const label = `[${ev.tool}]${ev.input ? ' ' + JSON.stringify(ev.input) : ''}\n`;
+                accumulated += label;
+                ledger.append({ type: 'progress', taskId, text: label, timestamp: new Date().toISOString() });
+                bus.publish({ kind: 'artifact-update', taskId, contextId, artifact: { artifactId: 'stdout', name: 'output', parts: [{ kind: 'text', text: label }] }, append: true, lastChunk: false });
+              }
+              if (ev.type === 'tool-result' && ev.output) {
+                const label = `→ ${ev.isError ? '✗' : '✓'} ${ev.output}\n`;
+                accumulated += label;
+                ledger.append({ type: 'progress', taskId, text: label, timestamp: new Date().toISOString() });
+                bus.publish({ kind: 'artifact-update', taskId, contextId, artifact: { artifactId: 'stdout', name: 'output', parts: [{ kind: 'text', text: label }] }, append: true, lastChunk: false });
               }
               if (ev.type === 'status' && ev.state === 'completed') {
                 settled = true;
@@ -227,18 +227,6 @@ export class PlumbExecutor implements AgentExecutor {
         const events = adapter.parseLine(line);
         for (const ev of events) {
           if (ev.type === 'text-delta' && ev.text) {
-            if (ev.type === "tool-call" && ev.tool) {
-              const label = `[${ev.tool}]${ev.input ? " " + JSON.stringify(ev.input) : ""}\n`;
-              accumulated += label;
-              ledger.append({ type: "progress", taskId, text: label, timestamp: new Date().toISOString() });
-              bus.publish({ kind: "artifact-update", taskId, contextId, artifact: { artifactId: "stdout", name: "output", parts: [{ kind: "text", text: label }] }, append: true, lastChunk: false });
-            }
-            if (ev.type === "tool-result" && ev.output) {
-              const label = `→ ${ev.isError ? "✗" : "✓"} ${ev.output}\n`;
-              accumulated += label;
-              ledger.append({ type: "progress", taskId, text: label, timestamp: new Date().toISOString() });
-              bus.publish({ kind: "artifact-update", taskId, contextId, artifact: { artifactId: "stdout", name: "output", parts: [{ kind: "text", text: label }] }, append: true, lastChunk: false });
-            }
             accumulated += ev.text;
             ledger.append({ type: 'progress', taskId, text: ev.text, timestamp: new Date().toISOString() });
             bus.publish({
@@ -246,6 +234,18 @@ export class PlumbExecutor implements AgentExecutor {
               artifact: { artifactId: 'stdout', name: 'output', parts: [{ kind: 'text', text: ev.text }] },
               append: true, lastChunk: false,
             });
+          }
+          if (ev.type === 'tool-call' && ev.tool) {
+            const label = `[${ev.tool}]${ev.input ? ' ' + JSON.stringify(ev.input) : ''}\n`;
+            accumulated += label;
+            ledger.append({ type: 'progress', taskId, text: label, timestamp: new Date().toISOString() });
+            bus.publish({ kind: 'artifact-update', taskId, contextId, artifact: { artifactId: 'stdout', name: 'output', parts: [{ kind: 'text', text: label }] }, append: true, lastChunk: false });
+          }
+          if (ev.type === 'tool-result' && ev.output) {
+            const label = `→ ${ev.isError ? '✗' : '✓'} ${ev.output}\n`;
+            accumulated += label;
+            ledger.append({ type: 'progress', taskId, text: label, timestamp: new Date().toISOString() });
+            bus.publish({ kind: 'artifact-update', taskId, contextId, artifact: { artifactId: 'stdout', name: 'output', parts: [{ kind: 'text', text: label }] }, append: true, lastChunk: false });
           }
           if (ev.type === 'status' && ev.state === 'completed') {
             settled = true;
