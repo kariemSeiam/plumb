@@ -24,7 +24,7 @@ export class PiAdapter implements AgentAdapter {
   readonly binary = 'pi';
   readonly tier = 1 as const;
   readonly displayName = 'Pi';
-  readonly mode = 'persistent' as const;
+  readonly mode = 'oneshot' as const;
 
   skills = [
     { id: 'code', name: 'Code generation and editing', tags: ['code', 'edit', 'write'] },
@@ -33,7 +33,7 @@ export class PiAdapter implements AgentAdapter {
   ];
 
   buildArgs(_task: AgentTask, _config: PlumbConfig): string[] {
-    return ['--mode', 'rpc', '--print', '--no-session'];
+    return ['--mode', 'json', '--print', '--no-session'];
   }
 
   formatInput(task: AgentTask): string {
@@ -68,13 +68,16 @@ export class PiAdapter implements AgentAdapter {
       return [];
     }
 
-    // Pi message_update — streaming text from assistant
+    // message_update — streaming text from assistant
     // Format: { type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'text' } }
-    if (event.type === 'message_update') {
+    if (event.type === 'message_update' && event.assistantMessageEvent) {
       const ame = event.assistantMessageEvent as { type?: string; delta?: string } | undefined;
-      if (ame?.type === 'text_delta' && typeof ame.delta === 'string') {
+      if (ame?.type === 'text_delta' && typeof ame.delta === 'string' && ame.delta) {
         return [{ type: 'text-delta', text: ame.delta }];
       }
+      // Skip thinking events
+      if (ame?.type && ame.type.startsWith('thinking_')) return [];
+      if (ame?.type === 'text_start' || ame?.type === 'text_end') return [];
       const text = event.text ?? event.delta ?? event.content ?? '';
       if (text) return [{ type: 'text-delta', text }];
       return [];

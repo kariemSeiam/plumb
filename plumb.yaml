@@ -2,9 +2,9 @@
 version: "1"
 agents:
   - id: pi
-    cli: pi --mode rpc
+    cli: pi
     port: 3001
-    mode: persistent
+    mode: oneshot
     timeout: 600
     name: pi
 
@@ -37,7 +37,7 @@ agents:
   - id: wolfy
     cli: wolfy
     port: 3007
-    mode: persistent
+    mode: oneshot
     timeout: 600
     name: Wolfy 🐺
     tier: 1
