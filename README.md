@@ -32,13 +32,14 @@ Requires [Bun](https://bun.sh) >= 1.1.0.
 
 ```bash
 # Wrap any CLI as an A2A agent
-plumb wrap cat --port 3001          # Echo adapter (conformance gate)
-plumb wrap "pi --mode rpc" --port 3002   # Pi adapter (persistent JSONL-RPC)
-plumb wrap claude --port 3003       # Claude Code adapter (stream-json)
-plumb wrap cursor-agent --port 3004 # Cursor adapter (stream-json)
-plumb wrap opencode --port 3005     # OpenCode adapter (json-stream)
-plumb wrap venom --port 3006        # VENOM adapter (stream-json)
-plumb wrap "./my-tool" --port 3007  # Generic adapter (any CLI)
+plumb wrap cat --port 3001              # Echo (conformance gate)
+plumb wrap "pi --mode rpc" --port 3002 # Pi (persistent JSONL-RPC)
+plumb wrap claude --port 3000           # Claude Code (stream-json)
+plumb wrap cursor-agent --port 3003     # Cursor (stream-json)
+plumb wrap opencode --port 3002         # OpenCode (json-stream)
+plumb wrap venom --port 3004            # VENOM (stream-json)
+plumb wrap wolfy --port 3007            # Wolfy (persistent, PI_CODING_AGENT_DIR)
+plumb wrap "./my-tool" --port 3005      # Generic (any CLI)
 ```
 
 Once running:
@@ -98,6 +99,7 @@ plumb fleet status            # Health check all
 |-----------|-----------------|------------|------|--------------|
 | Echo      | `cat`           | oneshot    | 1    | text         |
 | Pi        | `pi`            | persistent | 1    | jsonl-rpc    |
+| Wolfy 🐺  | `wolfy`         | persistent | 1    | jsonl-rpc    |
 | Claude    | `claude`        | oneshot    | 1    | stream-json  |
 | Cursor    | `cursor-agent`  | oneshot    | 1    | stream-json  |
 | OpenCode  | `opencode`      | oneshot    | 2    | json-stream  |
@@ -142,6 +144,7 @@ src/
     cursor.ts        CursorAdapter — stream-json + session tracking
     opencode.ts      OpenCodeAdapter — json-stream
     venom.ts         VenomAdapter — stream-json
+    wolfy.ts         WolfyAdapter — persistent JSONL-RPC, PI_CODING_AGENT_DIR
     generic.ts       GenericAdapter — text passthrough
     registry.ts      detectAdapter() — binary matching
   core/
