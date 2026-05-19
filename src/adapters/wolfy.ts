@@ -156,10 +156,30 @@ export class WolfyAdapter implements AgentAdapter {
       return [{ type: 'error', message: event.error ?? 'Unknown error' }];
     }
 
-    // Done signals
+    // Done signals — extract final message content before completing
     if (event.type === 'done' || event.type === 'complete' || event.type === 'finished' ||
         event.type === 'agent_end' || event.type === 'turn_end') {
-      return [{ type: 'status', state: 'completed' }];
+      const events: AdapterEvent[] = [];
+      // Extract final assistant text from agent_end/turn_end messages array
+      if (event.type === 'agent_end' || event.type === 'turn_end') {
+        const messages = (event as Record<string, unknown>).messages as Array<Record<string, unknown>> | undefined;
+        if (messages) {
+          for (const msg of messages) {
+            if (msg.role === 'assistant') {
+              const content = msg.content as Array<Record<string, unknown>> | undefined;
+              if (content) {
+                for (const block of content) {
+                  if (block.type === 'text' && typeof block.text === 'string') {
+                    events.push({ type: 'text-delta', text: block.text });
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      events.push({ type: 'status', state: 'completed' });
+      return events;
     }
 
     return [];
