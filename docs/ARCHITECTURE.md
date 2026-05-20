@@ -160,7 +160,7 @@ Full schema and query examples: `docs/LEDGER.md`.
 | * | `/a2a/rest` | Bearer (if apiKey configured) |
 
 `/health` returns `{ status: 'ok', adapter, tier, mode, agentAlive }`.
-`agentAlive` is `null` for oneshot adapters, `true/false` for persistent.
+`agentAlive` is omitted for oneshot adapters, `true/false` for persistent.
 
 Agent Card includes: `protocolVersion`, `capabilities.streaming`, `skills`, and `metadata` with `bridge`, `tier`, `mode`, `ledger` path.
 

@@ -150,7 +150,7 @@ detect(): Promise<DetectionResult | null> {
 
 **parseLine invariants:**
 
-- Must be pure. No side effects except on adapter-owned state (e.g., session tracking).
+- Must be deterministic. No side effects except on adapter-owned state (e.g., session tracking).
 - Empty or whitespace-only lines: return `[]`.
 - Non-JSON lines from tier-1 adapters: return `[{ type: 'text-delta', text: line + '\n' }]`.
 - Completion signal: return `[{ type: 'status', state: 'completed' }]`. Do not rely on process exit alone.

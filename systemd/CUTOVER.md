@@ -45,7 +45,7 @@ systemctl start plumb-wolfy
 
 ```bash
 # Health checks — all should return status: ok
-for port in 3000 3001 3003 3004 3007; do
+for port in 3000 3001 3002 3003 3004 3007; do
   echo -n ":$port "; curl -s http://localhost:$port/health | jq '{adapter, status, agentAlive}'
 done
 

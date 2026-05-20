@@ -1,0 +1,16 @@
+[Unit]
+Description=Plumb — Wolfy Agent (A2A Bridge, Pi dialect, persistent)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/plumb
+ExecStart=/root/.bun/bin/bun run /home/plumb/src/main.ts wrap "wolfy --mode json --print" --port 3007 --timeout 600
+EnvironmentFile=-/etc/plumb/agent.env
+Environment=HOME=/root
+Environment=PATH=/root/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/root/bin
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
