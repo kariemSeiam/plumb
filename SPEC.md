@@ -147,9 +147,9 @@ Source of truth for pass/fail labels: **`MANIFEST.yaml`** → `success_metrics`.
 
 See **`MANIFEST.yaml`** → `build_state` and `identity.version` (aligned with npm package **`plumb-bridge`**).
 
-**Done (high level):** core, cli, conformance, echo, generic, pi, wolfy, claude, cursor, opencode, venom, session-store, task-store, RPC, persistent-process, fleet CLI, npm publish for current line.
+**Done:** core, cli, conformance, echo, generic, pi, wolfy, claude, cursor, opencode, venom, session-store, task-store, RPC, persistent-process, fleet CLI (validate/status/up), FangPostParse hook, npm publish.
 
-**Next:** git `main` + version tag aligned with `package.json`; CI publish needs GitHub **`NPM_TOKEN`** for tag-driven workflow.
+**Phase 3 next:** Fang Ingress, Ledger Observer, runtime discovery, intent log. See `docs/ROADMAP.md`.
 
 ---
 
@@ -159,9 +159,10 @@ See **`MANIFEST.yaml`** → `build_state` and `identity.version` (aligned with n
 |-------|--------|
 | Runtime | TypeScript on **Bun** |
 | Protocol | **A2A** via `@a2a-js/sdk` |
-| Process | `node:child_process` spawn; persistent lane for Pi |
-| State on disk | JSONL ledger only — no DB in Phase 0 |
+| Process | `node:child_process` spawn; persistent lane for Pi and Wolfy |
+| State on disk | JSONL ledger only — no database |
 | Entry | `plumb wrap <cli> --port <n>` |
+| Extension | `FangPostParse` — transforms events after parseLine, before executor |
 
 ---
 

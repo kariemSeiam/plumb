@@ -26,18 +26,14 @@ Plumb is NOT a platform.
 
 | Plumb IS | Why |
 |----------|-----|
-| A bridge between A2A orchestrators and CLI agents | The core function. One AdapterContract, seven implementations. |
+| A bridge between A2A orchestrators and CLI agents | One AdapterContract. Eight implementations. Generic as fallback. |
 | An append-only JSONL ledger | Every task lifecycle recorded. Crash-survivable. Queryable with `jq`. |
-| A process lifecycle manager | Oneshot (spawn per task) and persistent (long-lived RPC). Configurable timeout. |
-| A concurrency gate | Max processes enforced. Tasks queue when at capacity. Default 4. |
-| A session continuity layer | CursorSessionStore with cold recap across process spawns. |
-| A fleet switchboard | `/agents` endpoint showing every agent, its status, its queue, its ledger. |
-| A circuit breaker | Per-adapter flap detection. Open after N failures. Auto-probe after cooldown. Excludes failing agents from routing. |
-| A crash resume protocol | On restart, scan ledger for in-flight tasks, mark interrupted. Recover without data loss. |
-| A version probe | On init, detect CLI version, compare against known-good list. Refuse known-bad versions. |
-| A label-based dispatcher | Route tasks by operator-assigned labels, not LLM judgment. |
+| A process lifecycle manager | Oneshot (spawn per task) and persistent (long-lived, serial queue). Configurable timeout. |
+| A session continuity layer | CursorSessionStore with TTL expiry and cold recap injection. |
+| A fleet switchboard | plumb.yaml + fleet validate/up/status. |
+| A FangPostParse extension point | One typed hook: transform events after parseLine, before executor. |
 | A brand with gravity | Brass plumb bob. Cistern dark. No gradient, no glow, no animation. |
-| An honest count | 80 tests passing, zero flakes, zero guesswork. 19+ fixtures per adapter. |
+| An honest count | 90 tests, 156 assertions, zero flakes. |
 
 ## IS NOT
 

@@ -113,14 +113,14 @@ The mesh discovers it. The mesh routes to it. But the port is its own.
 
 ## Status
 
-- [x] Wolfy adapter written: `src/adapters/wolfy.ts`
-- [x] Adapter registered: `src/adapters/registry.ts`
-- [x] MANIFEST updated: `MANIFEST.yaml`
-- [x] Agent Card created: `docs/wolfy-agent-card.json`
-- [x] Design document: `docs/WOLFY-MESH-PORT.md`
-- [ ] Deploy to Kariem's VPS
-- [ ] Plumb rebuild with wolfy adapter
-- [ ] Test: Hermes → Plumb → Wolfy → report
-- [ ] Run wolfy as persistent Plumb service
+- [x] Adapter: `src/adapters/wolfy.ts`
+- [x] Registered: `src/adapters/registry.ts` (after Pi, before Claude)
+- [x] MANIFEST: `MANIFEST.yaml` — tier 1, persistent, mesh citizen
+- [x] Agent Card: `docs/wolfy-agent-card.json`
+- [x] Design doc: `docs/WOLFY-MESH-PORT.md`
+- [x] Systemd unit: `systemd/plumb-wolfy.service`
+- [ ] Deploy to VPS
+- [ ] Live test: Hermes → Plumb → Wolfy → structured report
+- [ ] Persistent service health under load
 
 🐺∞

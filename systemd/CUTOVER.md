@@ -16,42 +16,62 @@ cp systemd/plumb-*.service /etc/systemd/system/
 systemctl daemon-reload
 ```
 
-## Cutover (one agent at a time)
+## Service Files
 
 ```
+systemd/plumb-pi.service
+systemd/plumb-claude.service
+systemd/plumb-cursor.service
+systemd/plumb-opencode.service
+systemd/plumb-venom.service
+systemd/plumb-wolfy.service
+```
+
+## Cutover (one agent at a time)
+
+```bash
 # Stop Fang, start Plumb for each agent
 systemctl stop fang-pi      && systemctl start plumb-pi
 systemctl stop fang-claude   && systemctl start plumb-claude
 systemctl stop fang-cursor   && systemctl start plumb-cursor
 systemctl stop fang-opencode && systemctl start plumb-opencode
 systemctl stop fang-venom    && systemctl start plumb-venom
+
+# Wolfy (new — no Fang equivalent)
+systemctl start plumb-wolfy
 ```
 
 ## Verify
 
-```
+```bash
 # Health checks — all should return status: ok
-for port in 3001 3002 3003 3004 3005; do
-  echo -n ":$port "; curl -s http://localhost:$port/health | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['adapter'], d['status'])"
+for port in 3000 3001 3003 3004 3007; do
+  echo -n ":$port "; curl -s http://localhost:$port/health | jq '{adapter, status, agentAlive}'
 done
 
-# Check agent cards
-curl -s http://localhost:3001/.well-known/agent-card.json | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['name'], d['capabilities'])"
+# Persistent agents must show agentAlive: true
+curl -s http://localhost:3001/health | jq .agentAlive   # Pi
+curl -s http://localhost:3007/health | jq .agentAlive   # Wolfy
+
+# Monitor logs
+journalctl -u plumb-pi -f
+journalctl -u plumb-wolfy -f
 ```
 
 ## Rollback (if needed)
 
-```
+```bash
 systemctl stop plumb-pi plumb-claude plumb-cursor plumb-opencode plumb-venom
 systemctl start fang-pi fang-claude fang-cursor fang-opencode fang-venom
 ```
 
 ## Ports
 
-| Port | Agent   | Mode       | Tier |
-|------|---------|------------|------|
-| 3001 | Pi      | persistent | 1    |
-| 3002 | Claude  | oneshot    | 1    |
-| 3003 | Cursor  | oneshot    | 1    |
-| 3004 | OpenCode| oneshot    | 2    |
-| 3005 | VENOM   | oneshot    | 3    |
+| Port | Agent    | Mode       | Tier | Service file |
+|------|----------|------------|------|-------------|
+| 3000 | Claude   | oneshot    | 1    | plumb-claude.service |
+| 3001 | Pi       | persistent | 1    | plumb-pi.service |
+| 3002 | OpenCode | oneshot    | 2    | plumb-opencode.service |
+| 3003 | Cursor   | oneshot    | 1    | plumb-cursor.service |
+| 3004 | VENOM    | oneshot    | 3    | plumb-venom.service |
+| 3007 | Wolfy    | persistent | 1    | plumb-wolfy.service |
