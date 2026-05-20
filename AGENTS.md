@@ -3,7 +3,7 @@
 
 > "Most infrastructure pretends to be friendly. We have the courtesy to be silent."
 > Scope: /hub/projects/live/Plumb/ and all subdirectories.
-> Last updated: 2026-05-12 (Session 1 — pivot: bridge replaces agent scaffold)
+> Last updated: 2026-05-20 (fleet stabilized, 8 adapters, 90 tests, Wave 2 fleet commands)
 
 ---
 
@@ -46,29 +46,36 @@ Plumb/
 ├── docs/
 │   └── workspace.md       ← Workspace command reference (optional local rule trees gitignored)
 ├── src/
-│   ├── types.ts           ← AgentTask, AdapterEvent, PlumbConfig, AgentAdapter, LedgerEvent
-│   ├── cli.ts             ← CLI: plumb wrap <cli> --port <n>
+│   ├── types.ts           ← AgentTask, AdapterEvent, PlumbConfig, AgentAdapter, LedgerEvent, RPC types
+│   ├── config.ts          ← Wave 2: FleetConfig, YAML parsing, plumb.yaml validation
+│   ├── cli.ts             ← CLI: wrap, fleet validate, fleet status, fleet up
 │   ├── main.ts            ← Entry point
 │   ├── core/
 │   │   ├── ledger.ts      ← Append-only JSONL (.plumb/ledger/{date}.jsonl)
-│   │   ├── process.ts     ← ProcessManager, PersistentProcess (writeWhenActive)
-│   │   ├── executor.ts    ← PlumbExecutor (implements AgentExecutor)
+│   │   ├── process.ts     ← ProcessManager, PersistentProcess (RPC, host tools, ready-frame)
+│   │   ├── executor.ts    ← PlumbExecutor + FangPostParse hook + handleEvents refactor
 │   │   ├── server.ts      ← createPlumbServer (Express + @a2a-js/sdk)
-│   │   └── task-store.ts  ← PlumbTaskStore (LRU + TTL bounded)
+│   │   ├── task-store.ts  ← PlumbTaskStore (LRU + TTL bounded)
+│   │   └── session-store.ts ← CursorSessionStore (TTL + cold recap injection)
 │   └── adapters/
 │       ├── stream-json.ts ← Shared parseLine utilities (tryParseLine, extractContentText, etc.)
-│       ├── echo.ts        ← EchoAdapter (wraps cat) — Phase 0 conformance gate
-│       ├── pi.ts          ← PiAdapter — persistent JSONL-RPC
+│       ├── echo.ts        ← EchoAdapter (wraps cat) — conformance gate
+│       ├── pi.ts          ← PiAdapter — oneshot JSONL (--mode json --print)
+│       ├── wolfy.ts       ← WolfyAdapter — oneshot JSONL (Pi dialect, 9 skills)
 │       ├── claude.ts      ← ClaudeAdapter — stream-json (shared parser)
-│       ├── cursor.ts      ← CursorAdapter — stream-json + dedup (shared parser)
+│       ├── cursor.ts      ← CursorAdapter — stream-json + session store + cold recap
 │       ├── opencode.ts    ← OpenCodeAdapter — json-stream
 │       ├── venom.ts       ← VenomAdapter — stream-json (shared parser)
 │       ├── generic.ts     ← GenericAdapter (text passthrough)
-│       └── registry.ts    ← detectAdapter() — maps CLI string to adapter
+│       └── registry.ts    ← detectAdapter() — Echo→Pi→Wolfy→Claude→Cursor→OpenCode→VENOM→Generic
 ├── test/
-│   ├── conformance.test.ts   ← Phase 0 automated gates
-│   ├── task-store.test.ts    ← PlumbTaskStore unit tests
-│   └── adapter-parse.test.ts ← All adapter parseLine + stream-json utility tests
+│   ├── conformance.test.ts       ← Phase 0 automated gates (5 tests)
+│   ├── task-store.test.ts        ← PlumbTaskStore unit tests (7 tests)
+│   ├── adapter-parse.test.ts     ← All adapter parseLine + stream-json tests (46 tests)
+│   ├── persistent-process.test.ts ← PersistentProcess lifecycle tests (5 tests)
+│   ├── rpc.test.ts               ← RPC correlation, timeout, host tool tests (5 tests)
+│   └── session-store.test.ts     ← CursorSessionStore TTL, recap, turn recording (12 tests)
+├── src/config.test.ts            ← FleetConfig validation tests (10 tests)
 ├── package.json
 ├── tsconfig.json
 ├── bunfig.toml
@@ -110,11 +117,18 @@ Do not add Docker. Do not add Redis. Do not add SQLite in Phase 0.
    ├── ledger: task_submitted
    ├── spawn CLI process
    ├── write task.message to stdin, close
-   ├── stdout → parseLine() → AdapterEvent[] → bus.publish()
+   ├── stdout → parseLine() → [FangPostParse hook] → handleEvents() → AdapterEvent[] → bus.publish()
+   │   ├── text-delta → bus.publish({ kind: 'text', parts: [...] })
+   │   ├── tool-call → formatted as [toolname] input text-delta
+   │   ├── tool-result → formatted as → ✓/✗ output text-delta
+   │   ├── status/completed → bus.finished()
+   │   └── error → bus.finished() with error
    ├── stderr → ledger: log
    ├── exit 0 → ledger: task_completed, bus.finished()
    └── exit N / timeout → ledger: task_failed, bus.finished()
 ```
+
+**handleEvents()** — Unified event processor (refactored from duplicated oneshot/persistent loops). Single private method processes all adapter events. Injected via `FangPostParse` hook runs after parseLine, before handleEvents.
 
 ---
 
@@ -140,19 +154,24 @@ Three methods that matter: `formatInput` (task → stdin), `parseLine` (stdout l
 
 ---
 
-## Phase 0 Priority (Current)
+## Current State (Phase 0 Complete)
 
-1. **Conformance test** — `bun test` spins up PlumbServer on a free port, submits a task, verifies:
-   - `GET /.well-known/agent-card.json` → 200 + valid Card
-   - `POST /a2a/jsonrpc` with `message/send` → SSE stream produces `progress` + final message
-   - Ledger file contains `task_submitted`, `task_running`, `progress`, `task_completed`
-   - `GET /health` → 200 + `status: ok`
+**90 tests, 156 assertions across 7 test files. All passing.**
 
-2. **Pi adapter** — after conformance passes. Pi's `--mode rpc` is persistent JSONL. Highest value.
+8 adapters: Echo, Pi, Wolfy, Claude, Cursor, OpenCode, VENOM, Generic.
 
-3. **Claude adapter** — after Pi.
+**Wave 2 additions:**
+- `src/config.ts` — FleetConfig (YAML) for `plumb.yaml` fleet definitions
+- `fleet validate` / `fleet status` / `fleet up` CLI commands
+- `FangPostParse` hook — post-parse event transformation before handleEvents
 
-**Build order for adapters:** echo (done) → conformance test → pi → claude → opencode → generic (done). Host-packaged IDE: no adapter (not a headless CLI; see `MANIFEST.yaml` notes).
+**Production fleet (2026-05-20):**
+- 3001: Plumb-Pi (bun, systemd) ✅
+- 3002: Fang-Claude (node, systemd) — pending cutover
+- 3003: Plumb-Cursor (bun, systemd) ✅
+- 3004: Fang-OpenCode (node, systemd) — pending cutover
+- 3005: Fang-VENOM (node, systemd) — pending cutover
+- 3007: Plumb-Wolfy (bun, systemd) ✅
 
 ---
 
@@ -247,6 +266,4 @@ All 4 must pass for Phase 0 to be complete.
 
 ---
 
-*Plumb — bridge first. Everything else is Phase 1.*
-*The plumb bob hangs true because gravity is not negotiable.*
-*The protocol gap is not negotiable either.*
+*Plumb — bridge first. The plumb bob hangs true because gravity is not negotiable.*

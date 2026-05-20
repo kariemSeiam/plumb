@@ -29,7 +29,7 @@
 ```
 
 Plumb wraps any CLI coding agent as an A2A server.
-One AdapterContract. Seven implementations. One ledger format. Zero dashboards.
+One AdapterContract. Eight implementations. One ledger format. Zero dashboards.
 
 ---
 
@@ -77,8 +77,8 @@ Plumb is the adapter layer between any CLI agent and any A2A-compatible orchestr
 
 - **Runtime:** TypeScript on Bun
 - **Protocol:** A2A via @a2a-js/sdk
-- **Tests:** 80+ (growing to 190+ at v1.0.0)
-- **Adapters:** 7 (echo, pi, claude, cursor, opencode, venom, generic)
+- **Tests:** 90 tests, 156 assertions (7 test files, growing to 190+ at v1.0.0)
+- **Adapters:** 8 (echo, pi, wolfy, claude, cursor, opencode, venom, generic)
 - **Concurrency:** Configurable max (default 4)
 - **Ledger:** Append-only JSONL
 - **Refusal:** No dashboard, no LLM, no orchestration
