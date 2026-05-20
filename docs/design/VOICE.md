@@ -1,5 +1,7 @@
 # VOICE — How Plumb Speaks
 
+> **Superseded by [DESIGN.md](../../DESIGN.md) §4 — Voice.** This document is retained for historical reference. The authoritative voice contract now lives in the Plumb Constitution.
+
 ```
 Plumb has no enthusiasm.
 Plumb has no personality.

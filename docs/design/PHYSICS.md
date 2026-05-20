@@ -1,5 +1,7 @@
 # PHYSICS — The Metaphor
 
+> **Superseded by [DESIGN.md](../../DESIGN.md) §5 — Brand Physics.** This document is retained for historical reference. The authoritative brand physics now live in the Plumb Constitution.
+
 ```
 A plumb bob is a lead weight on a string.
 It does nothing except hang.

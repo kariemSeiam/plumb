@@ -44,7 +44,7 @@ Orchestrator → HTTP/JSON-RPC → PlumbServer
 | `../README.md` | Install, quick start, adapter table | Everyone |
 | `../SPEC.md` | Living technical contract — what exists, what's stable | Engineers |
 | `../AGENTS.md` | Operating brief for AI agents working in this repo | AI agents |
-| `../DESIGN.md` | Design system — colors, typography, components | Contributors |
+| `../DESIGN.md` | Design constitution — terminal, JSON, CLI, voice, brand physics | Everyone |
 | `ARCHITECTURE.md` | Pipeline, layers, event flow, process modes | Engineers |
 | `ADAPTERS.md` | Adapter contract, event types, tiers, how to build one | Adapter authors |
 | `LEDGER.md` | Schema, guarantees, jq query reference | Operators |
