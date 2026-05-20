@@ -1,3 +1,42 @@
+---
+version: 1.1.0
+document: plumb-design-constitution
+colors:
+  cistern: "#0F172A"
+  slate: "#475569"
+  flow: "#64748B"
+  water: "#F1F5F9"
+  brass: "#C9A96E"
+  warning: "#B45309"
+  error: "#7F1D1D"
+  success: "#3F6212"
+typography:
+  heading:
+    fontFamily: Inter
+    fontSize: 1.5rem
+    fontWeight: 600
+    lineHeight: 1.2
+    letterSpacing: "-0.02em"
+  body:
+    fontFamily: Inter
+    fontSize: 1rem
+    fontWeight: 400
+    lineHeight: 1.6
+    letterSpacing: "0em"
+  code:
+    fontFamily: JetBrains Mono
+    fontSize: 0.875rem
+    fontWeight: 400
+    lineHeight: 1.5
+    letterSpacing: "0em"
+  label:
+    fontFamily: Inter
+    fontSize: 0.75rem
+    fontWeight: 500
+    lineHeight: 1.4
+    letterSpacing: "0.08em"
+---
+
 # DESIGN — The Plumb Constitution
 
 ```
@@ -14,268 +53,250 @@ It survives the company. It goes to the standards body.
 
 ## 1. Terminal Design
 
-Plumb's primary surface is the terminal. `plumb fleet status`. `plumb wrap`. stderr logs.
-Every line that hits a TTY is intentional. Nothing decorative.
+Plumb's primary surface is the terminal: `plumb fleet …`, `plumb wrap`, and **stderr JSONL** from `src/core/log.ts` and subprocess lifecycle. There is no separate “operator dashboard.” Human status for fleet operations is **lines on stderr**, not a formatted table on stdout.
 
 ### Authority
 
-- **stdout** carries structured output: fleet status tables, JSON responses when piped
-- **stderr** carries logs and errors. Never suppressed. Always machine-readable JSONL.
-- **exit codes** carry meaning. 0 = success, 1 = user error, 2 = system error, 3 = degraded
+- **stdout**: Commander help and version text only (no fleet table, no task progress).
+- **stderr**: structured logs — one JSON object per line from `log(level, msg, data?)` (`src/core/log.ts`).
+- **exit codes** (`src/cli.ts`): **`0`** success, **`1`** any failure path that calls `process.exit` today. **No `2` or `3` are emitted.**
 
-### Fleet Status Table
+### Structured stderr (authoritative shape)
 
-The canonical terminal output format:
+Every log line is JSON with:
 
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `ts` | string | ISO 8601 timestamp (`new Date().toISOString()`) |
+| `l` | string | Level label (e.g. `info`, `warn`, `error`) |
+| `m` | string | Message key / event name |
+
+Additional keys are merged from the optional `data` object (camelCase keys as provided by call sites).
+
+Example (fleet status, healthy agent):
+
+```json
+{"ts":"2026-05-20T20:00:00.000Z","l":"info","m":"fleet_agent_healthy","id":"pi","port":3001,"status":"ok"}
 ```
-id        port   status   adapter    tier   mode        agentAlive
-pi        3001   ok       pi         1      persistent  true
-wolfy     3007   ok       wolfy      1      persistent  true
-claude    3000   ok       claude     1      oneshot     —
-cursor    3003   ok       cursor     1      oneshot     —
-opencode  3002   error    —          —      —           —
+
+Example (wrap listening):
+
+```json
+{"ts":"2026-05-20T20:00:00.000Z","l":"info","m":"plumb_listening","port":3001,"adapter":"cursor","mode":"oneshot","endpoints":{"agentCard":"http://localhost:3001/.well-known/agent-card.json","jsonrpc":"http://localhost:3001/a2a/jsonrpc","rest":"http://localhost:3001/a2a/rest","health":"http://localhost:3001/health"}}
+```
+
+Example (process spawn from `ProcessManager`):
+
+```json
+{"ts":"2026-05-20T20:00:00.000Z","l":"info","m":"process_spawned","taskId":"<taskId>","cmd":"<binary>","pid":12345}
 ```
 
 Rules:
-- Columns are fixed. Order is fixed. Width auto-fits content.
-- `status` is a single word: `ok` or `error`. Never `degraded`, `warning`, or `partial`.
-- `agentAlive` shows `true`/`false` for persistent, `—` (em dash) for oneshot. Not `null`, not `N/A`.
-- A missing agent (port unreachable) shows `error` in status, `—` in all metadata columns.
 
-### Progress Output
+- One JSON object per line. No pretty-printing in Plumb's logger.
+- Field names **`l`** and **`m`** are fixed by `log()`; they are **not** renamed to `event` or `level`/`message` in this codebase.
+- Optional arbitrary payloads extend the object (e.g. `taskId`, `port`, `adapter`, `error`).
 
-`plumb wrap` outputs one line per event to stderr in JSONL:
+### Fleet status behavior
 
-```
-{"ts":"2026-05-20T14:30:00Z","event":"task_submitted","taskId":"47a2c1","agent":"cursor"}
-{"ts":"2026-05-20T14:30:01Z","event":"task_running","taskId":"47a2c1","pid":12345}
-{"ts":"2026-05-20T14:30:12Z","event":"task_completed","taskId":"47a2c1","duration":12}
-```
+`plumb fleet status` (`src/cli.ts`):
 
-Rules:
-- One JSON object per line. No pretty-printing. No ANSI escapes on stderr.
-- Timestamps in ISO 8601 UTC. Always.
-- Field names are camelCase. Consistent with ledger schema.
-- If you want readable output, pipe through `jq`. Plumb ships the data.
+1. Resolves `plumb.yaml` via `resolveConfigPath` / `--config`.
+2. `GET http://localhost:<port>/health` per agent.
+3. Emits **`fleet_status_check`**, per-agent **`fleet_agent_healthy`** | **`fleet_agent_unhealthy`** | **`fleet_agent_down`**, then **`fleet_status_summary`**.
+4. Exits **`0`** if all agents return HTTP OK; **`1`** if any fail or config missing.
 
-### Color in Terminal
+There is **no** fixed-column table output. Operators use `jq`/`rg` on stderr JSONL.
 
-Color is never structural. It signals severity only:
+### Color in terminal
 
-| Context | Color | Usage |
-|---------|-------|-------|
-| Error | Red (ANSI 31) | stderr prefix, fleet status `error` rows |
-| Success | Green (ANSI 32) | Rare — only explicit confirmation on request |
-| Info | Default terminal color | Everything else |
+`log()` writes plain UTF-8 JSON with **no ANSI color** in `src/core/log.ts`. Any future coloring must remain non-structural and respect `NO_COLOR` / `TERM=dumb` if introduced.
 
-No yellow. No blue. No magenta. Severity is binary: error or not-error.
-Color detection: respect `NO_COLOR` and `TERM=dumb`. Default to no color when stdout is not a TTY.
+### One fact per line
 
-### One Fact Per Line
-
-Every line of output carries exactly one fact. A status line is one fact. A log line is one fact.
-Never concatenate multiple statuses into one line. Never use multi-line progress bars.
-The operator is grepping. The operator is piping. Respect the pipeline.
+Each `log()` invocation emits exactly one JSON line. No progress bars, no spinner frames, no multi-line “dashboard” frames.
 
 ---
 
 ## 2. JSON Surface Design
 
-Plumb exposes JSON on three surfaces: `/health`, Agent Card, and the ledger.
-All three are append-only contracts. Fields are added; never removed or renamed without a major version bump.
+Plumb exposes JSON on **`/health`**, **`/.well-known/agent-card.json`**, JSON-RPC/REST via **`@a2a-js/sdk`**, the **ledger JSONL** under `.plumb/ledger/`, and **401** responses for bad auth. Only the **ledger file** is append-only persisted text by Plumb core; Agent Card and `/health` are computed responses.
 
-### Health Endpoint
+### Health endpoint
 
+`GET /health` (`src/core/server.ts`) returns **HTTP 200** and a JSON body. The handler **does not** branch on degraded state; **`status` is always the string `"ok"`** when the handler runs.
+
+Shape (always present):
+
+| Field | Type | Value |
+| --- | --- | --- |
+| `status` | string | Always `"ok"` |
+| `agent` | string | Resolved agent name: `config.name` if set, else `` `${adapter.displayName}-plumb` `` |
+| `adapter` | string | `adapter.id` (`echo`, `pi`, `cursor`, `generic`, …) |
+| `mode` | string | `"oneshot"` \| `"persistent"` |
+| `tier` | number | `1` \| `2` \| `3` |
+| `ledger` | string | Absolute filesystem path from `Ledger.getPath()` |
+
+Optional:
+
+| Field | Type | When |
+| --- | --- | --- |
+| `agentAlive` | boolean | **Only if** `executor.isPersistentAlive() !== null` — i.e. **persistent** adapters (`true`/`false`). For **oneshot**, `isPersistentAlive()` returns `null` and **`agentAlive` is omitted** (the key is not set). |
+
+There is **no** `null` sentinel in the JSON today; absence means “not applicable.”
+
+### Auth failure (A2A routes only)
+
+When `apiKey` is configured, unauthenticated requests to protected routes receive **401** with body:
+
+```json
+{ "error": { "message": "Unauthorized" } }
 ```
-GET /health → 200
-{
-  "status": "ok",
-  "adapter": "pi",
-  "tier": 1,
-  "mode": "persistent",
-  "agentAlive": true
-}
-```
 
-Rules:
-- `status`: `"ok"` or `"error"`. Never `"degraded"`. Degraded is `"ok"` — the server is up.
-- `adapter`: the adapter id string. `null` if no adapter matched (generic fallback).
-- `tier`: integer 1-3. Included even when adapter is null.
-- `mode`: `"oneshot"` or `"persistent"`.
-- `agentAlive`: `true`/`false` for persistent, omitted entirely for oneshot. Not `null`.
-- No additional fields without a minor version bump. No breaking changes without a major bump.
+(`src/core/server.ts`. Health and Agent Card routes are registered **before** this middleware and stay public.)
 
 ### Agent Card
 
-```
-GET /.well-known/agent-card.json → 200
-```
+`GET /.well-known/agent-card.json` is served by **`@a2a-js/sdk`** from the object built in `createPlumbServer` (`src/core/server.ts`):
 
-Rules:
-- Follows A2A protocol v0.3.0 schema.
-- `capabilities.streaming` is always `true` — Plumb always streams via SSE.
-- `skills` array is sourced from the adapter. Never hardcoded.
-- `defaultInputModes` and `defaultOutputModes` are `["text/plain"]`.
-- `metadata` carries `bridge: "plumb"`, `tier`, `mode`, `ledger` path.
-- The Agent Card is a contract artifact, not a marketing page. No descriptions longer than one line.
+| Field | Source |
+| --- | --- |
+| `name` | `config.name ?? `${adapter.displayName}-plumb`` |
+| `description` | `` `${adapter.displayName} via plumb — A2A bridge` `` |
+| `protocolVersion` | `'0.3.0'` |
+| `version` | `package.json` `version` via `getPackageVersion()` (falls back `0.0.0`) |
+| `url` | `process.env.PLUMB_PUBLIC_URL` or `` `http://localhost:${port}` `` |
+| `capabilities` | `{ streaming: true }` |
+| `skills` | `adapter.skills` mapped to include `description: skill.name` |
+| `defaultInputModes` | `['text/plain']` |
+| `defaultOutputModes` | `['text/plain']` |
+| `metadata` | `{ bridge: 'plumb', tier, mode, ledger: <ledger path> }` |
 
-### Ledger
+Redirect: `GET /.well-known/agent.json` → `/.well-known/agent-card.json` (302).
 
-```
-.plumb/ledger/YYYY-MM-DD.jsonl
-```
+### Ledger (JSONL)
 
-Rules:
-- One JSON object per line. UTF-8. LF-terminated.
-- Every event has `type`, `taskId`, `timestamp`. Timestamp is ISO 8601 UTC.
-- Event types are a closed set: `task_submitted`, `task_running`, `progress`, `log`, `task_completed`, `task_failed`, `task_cancelled`.
-- Field names are camelCase. Consistent across all event types.
-- `type` is a fixed string — never an integer code, never an enum index. Greppable.
-- The ledger file is the schema. If a field appears in the ledger, it is documented in `docs/LEDGER.md`.
+Path: **`.plumb/ledger/YYYY-MM-DD.jsonl`** (`src/core/ledger.ts`). One UTF-8 line per event, LF-terminated, `JSON.stringify` + `\n`.
 
-### JSON-RPC Errors
+`Ledger.append` on filesystem error: logs **`ledger_write_failed`** via `log()` and **swallows** the error — the event is **not** guaranteed to persist.
 
-A2A error responses follow a fixed shape:
+Event types and fields (`src/types.ts`):
 
-```json
-{
-  "jsonrpc": "2.0",
-  "id": null,
-  "error": {
-    "code": -32000,
-    "message": "CLI_TIMEOUT: Task exceeded timeout of 300s",
-    "data": {
-      "taskId": "47a2c1",
-      "agent": "cursor",
-      "elapsed": 301234
-    }
-  }
-}
-```
+- **`task_submitted`**: `type`, `taskId`, `cli`, `message`, `timestamp`
+- **`task_running`**: `type`, `taskId`, `timestamp`
+- **`progress`**: `type`, `taskId`, `text`, `timestamp`
+- **`log`**: `type`, `taskId`, `level`, `text`, `timestamp`
+- **`task_completed`**: `type`, `taskId`, `timestamp`
+- **`task_failed`**: `type`, `taskId`, `error`, `timestamp`
+- **`task_cancelled`**: `type`, `taskId`, `timestamp`
 
-Rules:
-- Error code follows JSON-RPC 2.0 spec. Plumb errors are in the -32000 to -32099 range.
-- `message` starts with the error code string (e.g., `CLI_TIMEOUT`), then a colon, then the description.
-- `data` carries the structured context: taskId, agent, elapsed, partial output if available.
-- Error code strings are stable. The operator greps for them. Never rename one.
+`timestamp` is ISO 8601 string (`new Date().toISOString()` in call sites). Human reference: **`docs/LEDGER.md`**.
 
-### Field Naming Convention
+### JSON-RPC / A2A errors
 
-All JSON fields across all surfaces use camelCase. No exceptions.
-- `agentAlive`, not `agent_alive` or `AgentAlive`
-- `taskId`, not `task_id`
-- `messageId`, not `message-id`
+Task failures surface through **`@a2a-js/sdk`** handlers. **`PlumbExecutor`** publishes user-visible strings such as:
 
-This is enforced by the TypeScript types. Any field added to `src/types.ts` follows this rule.
+- `No message text provided.` (empty text parts)
+- `` `Task timed out after ${timeout}s` `` (timeout)
+- Adapter `error` events: `ev.message`
+- Nonzero exit without prior settlement: `` `Process exited with code ${code}` ``
+
+There is **no** Plumb-enforced **`CLI_TIMEOUT:`** prefix or reserved JSON-RPC **`-32000..-32099`** namespace in `src/`. Do not document stable `CLI_*` grep tokens for JSON-RPC until implemented and tested.
+
+### Field naming (Plumb-owned JSON)
+
+Ledger and `log()` payloads use **camelCase** keys (`taskId`, `agentAlive`). The SDK uses its own shapes on the wire; Plumb normalizes inbound message parts (`kind` vs `type`) inside **`PlumbExecutor.execute`** only for extracting text — it does not redefine the public SDK schema in this file.
 
 ---
 
 ## 3. CLI Contract
 
-Plumb's CLI is the entry point. Every flag, subcommand, and exit code obeys these rules.
+Entry: **`plumb`** (`src/cli.ts`, Commander).
 
 ### Binary
 
-```
-plumb
-```
+Single **`plumb`** entry; subcommands `wrap` and `fleet`.
 
-One binary. All subcommands hang off it. No `plumb-server`, `plumb-fleet`, `plumb-wrap` binaries.
-The binary is installed via npm: `npm install -g plumb-bridge` or `bun add -g plumb-bridge`.
-
-### Subcommands
+### Subcommands (as implemented)
 
 ```
-plumb wrap <cli> [flags]        Start a single agent bridge
-plumb fleet validate             Validate plumb.yaml config
-plumb fleet up                   Start all agents from plumb.yaml
-plumb fleet status               Health check all agents
-plumb fleet --help               Show fleet subcommand help
-plumb --version                  Print version and exit
-plumb --help                     Print help and exit
+plumb wrap <cli> [options]
+plumb fleet validate [options]
+plumb fleet status [options]
+plumb fleet up [options]
+plumb --version
+plumb --help
 ```
 
-Rules:
-- Subcommands are verbs. `wrap`, `validate`, `up`, `status`. Not nouns. Not gerunds.
-- Subcommands are two levels deep maximum. `plumb fleet validate`, never `plumb fleet agent restart`.
-- Help text is generated from the command structure. Not hand-written per command.
+`fleet` without a subcommand shows Commander help.
 
-### Flags — Single Agent
+### `plumb wrap <cli>`
 
-```
-plumb wrap <cli> [--port <n>] [--timeout <s>] [--key <token>] [--mode oneshot|persistent]
-```
+Options:
 
-Rules:
-- Flags use double-dash: `--port`, not `-p`. Aliases are acceptable but not primary.
-- Boolean flags: `--verbose`, not `--verbose=true`. Absence means false.
-- Required arguments have no default. The CLI exits with code 1 if missing.
-- The `<cli>` argument is positional, not a flag. It is always the first argument after `wrap`.
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `-p, --port <number>` | `3001` | Listen port (validated 1–65535) |
+| `--name <name>` | — | Agent Card / health `agent` name override |
+| `--workdir <dir>` | — | `cwd` / task workdir |
+| `--timeout <seconds>` | `300` | Maps to `PlumbConfig.taskTimeout` |
+| `--key <apiKey>` | — | Bearer token for `/a2a/*` when set |
 
-### Flags — Fleet
+There is **no** `--mode` flag: mode comes from **`detectAdapter(cli).mode`**.
 
-```
-plumb fleet validate [--file <path>]
-plumb fleet up [--file <path>] [--detach]
-plumb fleet status [--file <path>]
-```
+**Precedence:** Commander flags + these defaults only. **`plumb wrap` does not read `plumb.yaml`.**
 
-Rules:
-- `--file` defaults to `plumb.yaml` in CWD, then `plumb.yml`, then `./config/plumb.yaml`. First match wins.
-- `--detach` is not implemented yet. Fleet `up` runs in foreground. Use systemd for daemonization.
+### `plumb fleet …`
 
-### Environment Variables
+Config path resolution (`src/config.ts`):
 
-| Variable | Equivalent Flag | Precedence |
-|----------|----------------|------------|
-| `PLUMB_PORT` | `--port` | Flag wins |
-| `PLUMB_TIMEOUT` | `--timeout` | Flag wins |
-| `PLUMB_KEY` | `--key` | Flag wins |
+- Flag **`-c, --config <path>`** if provided and file exists.
+- Else first existing of: `plumb.yaml`, `plumb.yml`, `./config/plumb.yaml`.
+- Missing file → `config_not_found` log, exit **`1`**.
 
-Rules:
-- Environment variables are uppercase, `PLUMB_` prefix, underscore-separated.
-- Flag always takes precedence over environment variable.
-- `plumb.yaml` values take precedence over environment variables but not over flags.
-- Precedence chain: flag > plumb.yaml > env var > default.
+Commands:
 
-### Exit Codes
+- **`validate`**: load YAML, `validateFleetConfig`, exit **`0`** or **`1`**.
+- **`status`**: HTTP probe each agent, exit **`0`** or **`1`**.
+- **`up`**: validate, spawn one `createPlumbServer` per agent, bind ports, block until SIGINT/SIGTERM (then shutdown), exit **`0`**; validation/spawn errors exit **`1`**.
 
-| Code | Meaning | When |
-|------|---------|------|
-| 0 | Success | Task completed, fleet is healthy, validate passed |
-| 1 | User error | Bad config, missing required flag, invalid port |
-| 2 | System error | Process crash, port in use, spawn failure |
-| 3 | Task failure | Task returned non-zero, task timed out |
+`--detach` **does not exist** in code (do not document).
 
-Rules:
-- Exit codes are stable. A script written against code 1 will always mean user error.
-- New exit codes are added at the end of the range, never in the middle.
-- Exit code meanings are documented in one place: this section.
+### Fleet YAML schema (parsed)
 
-### Help Text
+`FleetConfig` (`src/config.ts`):
 
-```
-$ plumb wrap --help
-Usage: plumb wrap <cli> [flags]
+- **`version`**: string (default `'1'` if absent in YAML)
+- **`agents[]`** each with:
+  - **`id`**, **`cli`**, **`port`** (required)
+  - **`mode`**, **`workdir`**, **`timeout`**, **`name`**, **`apiKey`**, **`env`**, **`labels`**, **`sessionStore`** (optional)
 
-Wrap any CLI coding agent as an A2A server.
+**Runtime mapping** uses **`agentToPlumbConfig`**: passes **`cli`, `port`, `name`, `workdir`, `taskTimeout` (from `timeout` or default 300), `apiKey`, `env`** into **`PlumbConfig`**. Adapter selection is **`detectAdapter(agent.cli)`** — YAML **`mode`** does not override adapter mode in current wiring. **`labels`** and **`sessionStore`** are parsed into `FleetAgent` but **not consumed** by fleet boot or `createPlumbServer` in `src/cli.ts`.
 
-Arguments:
-  <cli>    CLI command to wrap (e.g., "claude", "cursor-agent --print")
+### Environment variables
 
-Flags:
-  --port <n>       Port to listen on (required)
-  --timeout <s>    Task timeout in seconds (default: 300)
-  --key <token>    Bearer token for /a2a endpoints
-  --mode <mode>    Process mode: oneshot (default) or persistent
-```
+**Implemented in `src/` today:**
 
-Rules:
-- Help text is imperative. "Wrap any CLI coding agent" — not "This command wraps...".
-- One sentence for the command description. Everything else is in Arguments and Flags.
-- Default values are stated inline: `(default: 300)`, `(required)`.
-- No examples in help text. Examples live in README.md.
-- Help text is the contract. If a flag appears in help, it works exactly as stated.
+- **`PLUMB_PUBLIC_URL`**: overrides Agent Card `url` in `createPlumbServer` (`src/core/server.ts`).
+
+**Not implemented** (do not document as binding):
+
+- `PLUMB_PORT`, `PLUMB_TIMEOUT`, `PLUMB_KEY` — no reads in `src/cli.ts` / `src/config.ts`.
+
+Other secrets (e.g. **`CURSOR_API_KEY`**) are adapter-specific.
+
+### Exit codes (actual)
+
+| Code | When (`src/cli.ts`) |
+| --- | --- |
+| `0` | Success; graceful fleet shutdown after signal |
+| `1` | Invalid port, config errors, validation failure, any agent unhealthy in `fleet status`, fleet `up` failures |
+
+No other numeric exits are defined in the CLI source.
+
+### Help text
+
+Generated by Commander from `.option()` / `.description()` registrations — not hand-maintained prose in-repo per command beyond those strings.
 
 ---
 
@@ -293,11 +314,11 @@ Plumb has precision.
 |----|-------|
 | State | Hedge |
 | "Task timed out after 300s." | "It seems the task may have timed out." |
-| "CLI crashed with code 1." | "We encountered an issue with the CLI." |
+| "Process exited with code 1." | "We encountered an issue with the CLI." |
 | "3 agents running, 1 error." | "I'd like to share some health information." |
 | Answer first | Explain first |
 | Logs are the UI | Build a dashboard |
-| JSON to stdout | Pretty-print for humans |
+| JSONL to stderr | Pretty-print for machines |
 
 ### By Surface
 
@@ -305,42 +326,16 @@ Plumb has precision.
 
 ```
 Plumb wraps any CLI coding agent as an A2A server.
-One endpoint. One ledger. Eight adapters. Zero dashboards.
+One endpoint. One ledger. Adapters live in src/adapters. Zero dashboards.
 ↓
 Everything below this line is proof.
 ```
 
-No "welcome to" or "we're excited to." The first sentence tells you what it is.
-The second sentence tells you the constraints. Everything after is evidence.
+**Executor/tool traces:** When mapping `tool-result` adapter events to accumulated text, the bridge may insert **Unicode check/cross marks (U+2713 / U+2717)** as deterministic glyphs in plain-text progress lines (`src/core/executor.ts`). This is **not** the emoji ban in the sense of expressive pictographs (🎉, etc.); it is explicit, stable punctuation in structured output. The **MANIFEST** emoji refusal still applies to marketing flourishes and log **keys** — not to this delimiter convention until removed from code.
 
-**Error messages:** Code first. Message second. Details third.
+**Log output (stderr):** Structured JSON via `log()`. Pipe through `jq`.
 
-```
-CLI_TIMEOUT: Task exceeded timeout of 300s
-  taskId: 47a2c1
-  agent: cursor
-  elapsed: 301234ms
-```
-
-Three fields. The operator greps the code, reads the docs, or inspects the ledger.
-The error message points at all three.
-
-**Log output (stderr):** Structured JSON. One line per event.
-
-```
-{"ts":"2026-05-20T19:00:00Z","event":"task_submitted","taskId":"47a2c1","agent":"cursor"}
-```
-
-Machine-readable first, human-readable second. Pipe through `jq` if you want formatting.
-Plumb ships the raw data. Formatting is the consumer's job.
-
-**Health endpoints:** Status is a single word. Details are additional fields.
-
-```
-GET /health → {"status":"ok","adapter":"cursor","tier":1,"mode":"oneshot"}
-```
-
-`ok` or `error`. Not `healthy`/`unhealthy`. Plumb tells you the state. The operator decides what to do.
+**Health JSON:** `{ "status": "ok", … }` as implemented; operators infer liveness from fields and fleet stderr.
 
 ### What Plumb Never Says
 
@@ -355,22 +350,19 @@ GET /health → {"status":"ok","adapter":"cursor","tier":1,"mode":"oneshot"}
 "We believe in..."
 ```
 
-Plumb does not believe in anything. It spawns processes, reads stdout, writes JSONL, and exits.
-If you want enthusiasm, talk to the agent on the other end of the pipe. Plumb is the pipe.
+Plumb does not believe in anything. It spawns processes, reads stdout, writes JSONL, and exits. If you want enthusiasm, talk to the agent on the other end of the pipe. Plumb is the pipe.
 
 ### The Test
 
-Read any Plumb document aloud. If a sentence sounds like a person wrote it, rewrite it until
-it sounds like gravity wrote it. Gravity does not announce itself. Gravity does not apologize.
-Gravity does not explain. Gravity acts.
+Read any Plumb document aloud. If a sentence sounds like a person wrote it, rewrite it until it sounds like gravity wrote it. Gravity does not announce itself. Gravity does not apologize. Gravity does not explain. Gravity acts.
 
 ### Banned Content
 
-- **Emoji** — anywhere. Not in docs, not in logs, not in commit messages, not in agent cards.
+- **Emoji** — expressive pictographs in docs, marketing, commit messages, agent cards, and log **message keys** (`m` values should stay alphanumeric/snake-case facts). See §4 note on U+2713/U+2717 in executor output.
 - **Metaphors on controls** — the CLI flag is `--timeout`, not `--patience`. The endpoint is `/health`, not `/pulse`.
 - **Friendliness** — no "please" in error messages, no "welcome" in docs, no "thanks for using" anywhere.
 - **Gradients** — on any surface, digital or physical. The brand uses solid brass, solid slate, solid water.
-- **Animation** — no transitions, no loading spinners, no progress bars. State changes are instantaneous.
+- **Animation** — no transitions, no loading spinners, no progress bars. State changes are instantaneous where Plumb controls them.
 
 ---
 
@@ -401,7 +393,7 @@ Plumb's physical manifestation:
 
 The string is the A2A protocol. Fixed. Non-negotiable.
 The reference plane is the adapter contract — the interface between agents and the physical world.
-The brass bob is the ledger — append-only, crash-survivable, as close to gravity as software gets.
+The brass bob is the ledger — append-only intent, crash-exposed honestly when I/O fails.
 
 ### Aqueduct
 
@@ -409,7 +401,7 @@ Roman aqueducts carried water across valleys using only gravity. No pumps. No va
 Just a consistent downward gradient.
 
 Plumb carries tasks across subprocess boundaries using only the adapter contract.
-No orchestration. No intelligent routing. Just a consistent interface.
+No orchestration inside this repository. No intelligent routing. Just a consistent interface.
 
 ```
      ─────────────────────────────  ← pipe (Plumb + A2A)
@@ -424,9 +416,9 @@ The gradient is the protocol. The pipe is Plumb. The water is the task.
 The Basilica Cistern in Istanbul holds 80,000 cubic meters of water. It does not pump.
 It does not filter. It holds. When the city needs water, it opens a valve.
 
-Plumb's ledger is the cistern. It holds every task event ever recorded.
-When the operator needs to debug, they query. No indexing. No aggregation. No summarization.
-The cistern holds. The operator reaches in.
+Plumb's ledger is the cistern. It holds every task event appended successfully.
+When the operator needs to debug, they query. No indexing inside Plumb. No summarization.
+The cistern holds. The operator reaches in — knowing writes can fail silently today (`ledger_write_failed`).
 
 ### Switchboard
 
@@ -435,8 +427,8 @@ When a caller asked for a number, the operator plugged a cable into the correspo
 The operator did not know what the caller was going to say. The operator participated in nothing.
 The operator connected.
 
-Plumb's fleet is the switchboard. It shows which jacks are connected, which are busy, which are dead.
-The operator (or VENOM orchestrator) decides which cable to plug in.
+Plumb's fleet is the switchboard. stderr lines show which jacks answered HTTP, which returned errors, which were unreachable.
+The operator (or upstream orchestrator) decides which cable to plug in.
 
 ### The Map
 
@@ -478,11 +470,12 @@ they are a constraint on what colors may appear on any Plumb surface.
 | Flow | `#64748B` | Muted detail. Timestamps, metadata, de-emphasized info. |
 | Water | `#F1F5F9` | Light surface. Doc backgrounds, primary text on dark. |
 | Brass | `#C9A96E` | The only accent. Active states, the plumb bob itself. Aged brass, not polished gold. |
-| Warning | `#B45309` | Severity only. stderr prefix, error rows in fleet table. |
+| Warning | `#B45309` | Severity only. stderr / log severity (no rendered fleet table). |
 | Error | `#7F1D1D` | Fatal only. Process crash, unrecoverable state. |
 | Success | `#3F6212` | Confirmation only. Rarely used. |
 
 Rules:
+
 - Brass on water backgrounds is forbidden. Contrast ratio 2.1:1 — fails WCAG AA.
 - Brass on cistern or slate only.
 - No more than 8 colors. These are the palette. No additions without a version bump.
@@ -500,6 +493,7 @@ For documentation and terminal output:
 | Labels | Inter | 0.75rem | 500 | 1.4 |
 
 Rules:
+
 - Inter for prose. Chosen because it is invisible — the reader experiences information, not the typeface.
 - JetBrains Mono for code. No ligatures. The vertical rhythm matches JSONL ledger density.
 - Labels at 500 weight with 0.08em positive tracking. All-caps is forbidden — tracking provides hierarchy without shouting.
@@ -510,11 +504,13 @@ Rules:
 Metaphors break. This one breaks at the edge of Plumb's responsibility.
 
 A plumb bob cannot:
+
 - Tell you if the foundation will hold
 - Predict when the wall will crack
 - Decide which wall to build next
 
 Plumb cannot:
+
 - Tell you if the agent is giving good answers
 - Predict when the upstream CLI will change its format
 - Decide which agent should handle a task
@@ -524,13 +520,32 @@ This is not a bug. It is the design. Judgment is the operator's job.
 
 ---
 
+## 6. Conformance (honesty tests)
+
+This constitution is falsifiable. A CI suite **should** hold it true:
+
+1. **`/health` schema snapshot** — Response includes `status`, `agent`, `adapter`, `mode`, `tier`, `ledger`; `agentAlive` only when `.mode === 'persistent'` in the running server config; always HTTP 200 from the handler.
+2. **401 auth body** — When `apiKey` set, protected route without `Authorization: Bearer …` returns `{ "error": { "message": "Unauthorized" } }`.
+3. **Agent Card shape** — Snapshot `name`, `description`, `protocolVersion`, `version`, `url`, `capabilities.streaming === true`, `skills[]`, `defaultInputModes`, `defaultOutputModes`, `metadata.bridge`, `metadata.tier`, `metadata.mode`, `metadata.ledger`.
+4. **Ledger line grammar** — Golden-file each `LedgerEvent` variant with required keys; assert `append` either extends the file or results in **`ledger_write_failed`** log line on injectable I/O failure (optional fault injection).
+5. **stderr log schema** — Every `log()` line parses as JSON and contains `ts`, `l`, `m`.
+6. **CLI exit codes** — `plumb` commands exit only `0` or `1` in automated runs; map specific failure paths (`invalid_port`, `validation_failed`, `fleet` partial health) to `1`.
+7. **Fleet stderr events** — Presence and shape of `fleet_status_summary`, `plumb_listening`, etc., under scripted runs.
+8. **`PlumbConfig` / fleet mapping** — YAML round-trip: only documented keys reach `createPlumbServer`; document drift if `labels` / `sessionStore` remain unused.
+9. **Registry order** — Snapshot `KNOWN_ADAPTERS` detection precedence (`echo` → `pi` → `wolfy` → `claude` → `cursor` → `opencode` → `venom` → fallback `generic`) matching `src/adapters/registry.ts`.
+
+Failing tests mean **either fix the code or fix this doc** — never both silent.
+
+---
+
 ## Authority
 
-This constitution is subordinate to `MANIFEST.yaml` and `MANIFEST.md`.
+This constitution is subordinate to **`MANIFEST.yaml`** and **`docs/MANIFEST.md`**.
 Where MANIFEST says "IS NOT," this constitution does not define it.
 MANIFEST is the tie-breaker. This constitution is the elaboration.
 
 If a surface exists that this constitution does not cover, it defaults to:
+
 - Terminal rules for any stdout/stderr output
 - JSON rules for any HTTP endpoint response
 - Voice rules for any human-readable text
@@ -540,20 +555,16 @@ If a surface exists that this constitution does not cover, it defaults to:
 
 ## Version
 
-This constitution is versioned with Plumb. When the AdapterContract changes, this constitution
-may change. When a new surface is added (e.g., TUI, web socket), this constitution gains a section.
-Sections are never removed. They may be marked `[DEPRECATED]` with a migration path.
-
 ```
-Version: 1.0.0
+Version: 1.1.0
 Ratified: 2026-05-20
-Replaces: DESIGN.md (alpha) — dashboard component library (discarded)
-Supersedes: docs/design/VOICE.md, docs/design/PHYSICS.md
-References: MANIFEST.yaml, MANIFEST.md, docs/ARCHITECTURE.md, docs/ADAPTERS.md
+Replaces: DESIGN.md v1.0.0 (aspirational / code drift)
+Supersedes: docs/design/VOICE.md, docs/design/PHYSICS.md (if present)
+References: MANIFEST.yaml, docs/MANIFEST.md, docs/LEDGER.md, src/core/server.ts, src/core/log.ts, src/cli.ts, src/types.ts
 ```
 
 ---
 
-*Gravity does not ask permission. Neither does the protocol.*
-*The plumb bob hangs true. The constitution holds.*
+*Gravity does not ask permission. Neither does the protocol.*  
+*The plumb bob hangs true. The constitution holds.*  
 *Build on it. Do not decorate it.*
