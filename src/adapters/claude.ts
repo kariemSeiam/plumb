@@ -8,8 +8,7 @@ import { promisify } from 'node:util';
 import type { AgentAdapter, AgentTask, AdapterEvent, DetectionResult, PlumbConfig } from '../types.ts';
 import { tryParseLine, extractContentText, textDelta, statusEvent, errorEvent } from './stream-json.ts';
 import type { ContentBlockEvent } from './stream-json.ts';
-
-const execFileAsync = promisify(execFile);
+import { detectBinary } from './detect.ts';
 
 export class ClaudeAdapter implements AgentAdapter {
   readonly id = 'claude';
@@ -45,21 +44,17 @@ export class ClaudeAdapter implements AgentAdapter {
 
     // Assistant message — extract text content
     if (json.type === 'assistant') {
-      const contentEvent = json as unknown as ContentBlockEvent;
-      const extracted = extractContentText(contentEvent);
+      const extracted = extractContentText(json as ContentBlockEvent);
       return extracted ? [textDelta(extracted)] : [];
     }
 
-    // Result event — final output
     if (json.type === 'result') {
       if (json.is_error || json.error) {
         return [errorEvent(json.error ?? 'Unknown error')];
       }
-      // Result text is already captured from assistant message, signal completion
       return [statusEvent('completed')];
     }
 
-    // Error event
     if (json.type === 'error') {
       return [errorEvent(String(json.error ?? json.message ?? 'Unknown error'))];
     }
@@ -67,15 +62,7 @@ export class ClaudeAdapter implements AgentAdapter {
     return [];
   }
 
-  async detect(): Promise<DetectionResult | null> {
-    try {
-      const { stdout } = await execFileAsync('which', ['claude'], { timeout: 5000 });
-      let version = 'unknown';
-      try {
-        const { stdout: vOut } = await execFileAsync('claude', ['--version'], { timeout: 5000 });
-        version = vOut.trim().split('\n')[0] ?? 'unknown';
-      } catch { /* version check failed */ }
-      return { binary: 'claude', version, path: stdout.trim(), tier: 1, protocol: 'stream-json' };
-    } catch { return null; }
+  detect(): Promise<DetectionResult | null> {
+    return detectBinary('claude', 1, 'stream-json');
   }
 }

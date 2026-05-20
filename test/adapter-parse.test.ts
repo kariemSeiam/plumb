@@ -43,7 +43,7 @@ describe('stream-json utilities', () => {
         ],
       },
     };
-    expect(extractContentText(event as any)).toBe('Hello \nWorld');
+    expect(extractContentText(event)).toBe('Hello \nWorld');
   });
 
   it('extractContentText: returns null when no text content', () => {
@@ -51,11 +51,11 @@ describe('stream-json utilities', () => {
       type: 'assistant',
       message: { content: [{ type: 'image', url: 'x' }] },
     };
-    expect(extractContentText(event as any)).toBeNull();
+    expect(extractContentText(event)).toBeNull();
   });
 
   it('extractContentText: returns null when no message', () => {
-    expect(extractContentText({ type: 'assistant' } as any)).toBeNull();
+    expect(extractContentText({ type: 'assistant' })).toBeNull();
   });
 
   it('helper functions produce correct events', () => {

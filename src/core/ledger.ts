@@ -1,10 +1,10 @@
 // PLUMB — Ledger
 // Append-only JSONL. Every task event is one line. Crash-survivable. Query with jq.
-// Stolen from pi's append-only tree storage, simplified to linear per-day files.
 
 import { appendFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { LedgerEvent } from '../types.ts';
+import { log } from './log.ts';
 
 const LEDGER_DIR = '.plumb/ledger';
 
@@ -25,12 +25,7 @@ export class Ledger {
       this.rollIfNeeded();
       appendFileSync(this.path, JSON.stringify(event) + '\n');
     } catch {
-      process.stderr.write(JSON.stringify({
-        ts: new Date().toISOString(),
-        l: 'error',
-        m: 'ledger_write_failed',
-        event_type: event.type,
-      }) + '\n');
+      log('error', 'ledger_write_failed', { event_type: event.type });
     }
   }
 

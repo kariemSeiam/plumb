@@ -1,23 +1,8 @@
 // PLUMB — Pi Adapter
-// Wraps `pi --mode rpc --print`. JSONL protocol. Highest value adapter.
-// Extension UI requests are filtered. Text deltas and responses are captured.
+// Wraps `pi --mode json --print --no-session`.
 
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import type { AgentAdapter, AgentTask, AdapterEvent, DetectionResult, PlumbConfig } from '../types.ts';
-
-const execFileAsync = promisify(execFile);
-
-interface PiRpcEvent {
-  type: string;
-  text?: string;
-  content?: string;
-  success?: boolean;
-  error?: string;
-  delta?: string;
-  assistantMessageEvent?: { type?: string; delta?: string };
-  [key: string]: unknown;
-}
+import { detectBinary } from './detect.ts';
 
 export class PiAdapter implements AgentAdapter {
   readonly id = 'pi';
@@ -48,71 +33,57 @@ export class PiAdapter implements AgentAdapter {
   parseLine(line: string): AdapterEvent[] {
     if (!line.trim()) return [];
 
-    let event: PiRpcEvent;
+    let event: Record<string, unknown>;
     try {
       event = JSON.parse(line);
     } catch {
-      // Non-JSON line — treat as raw text
       return [{ type: 'text-delta', text: line + '\n' }];
     }
 
-    // Filter extension UI requests — these are status updates, not task output
-    if (event.type === 'extension_ui_request') {
-      return [];
-    }
+    if (event.type === 'extension_ui_request') return [];
 
-    // Text delta events — streaming output
     if (event.type === 'text-delta' || event.type === 'delta') {
       const text = event.text ?? event.delta ?? event.content ?? '';
-      if (text) return [{ type: 'text-delta', text }];
+      if (text) return [{ type: 'text-delta', text: text as string }];
       return [];
     }
 
-    // message_update — streaming text from assistant
-    // Format: { type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'text' } }
     if (event.type === 'message_update' && event.assistantMessageEvent) {
-      const ame = event.assistantMessageEvent as { type?: string; delta?: string } | undefined;
-      if (ame?.type === 'text_delta' && typeof ame.delta === 'string' && ame.delta) {
+      const ame = event.assistantMessageEvent as Record<string, unknown>;
+      if (ame.type === 'text_delta' && typeof ame.delta === 'string' && ame.delta) {
         return [{ type: 'text-delta', text: ame.delta }];
       }
-      // Skip thinking events
-      if (ame?.type && ame.type.startsWith('thinking_')) return [];
-      if (ame?.type === 'text_start' || ame?.type === 'text_end') return [];
+      if (ame.type && String(ame.type).startsWith('thinking_')) return [];
+      if (ame.type === 'text_start' || ame.type === 'text_end') return [];
       const text = event.text ?? event.delta ?? event.content ?? '';
-      if (text) return [{ type: 'text-delta', text }];
+      if (text) return [{ type: 'text-delta', text: text as string }];
       return [];
     }
 
-    // Content block — full text
     if (event.type === 'content' || event.type === 'text') {
       const text = event.text ?? event.content ?? '';
-      if (text) return [{ type: 'text-delta', text }];
+      if (text) return [{ type: 'text-delta', text: text as string }];
       return [];
     }
 
-    // Response event — task result
     if (event.type === 'response') {
       if (event.success === false && event.error) {
-        return [{ type: 'error', message: event.error }];
+        return [{ type: 'error', message: event.error as string }];
       }
-      // Successful response — emit text if present, always complete
       const text = event.text ?? event.content ?? '';
-      if (text) return [{ type: 'text-delta', text }, { type: 'status', state: 'completed' }];
+      if (text) return [{ type: 'text-delta', text: text as string }, { type: 'status', state: 'completed' }];
       return [{ type: 'status', state: 'completed' }];
     }
 
-    // Error event
     if (event.type === 'error') {
-      return [{ type: 'error', message: event.error ?? 'Unknown error' }];
+      return [{ type: 'error', message: (event.error ?? 'Unknown error') as string }];
     }
 
-    // Done/complete signals (Pi uses agent_end and turn_end)
     if (event.type === 'done' || event.type === 'complete' || event.type === 'finished' ||
         event.type === 'agent_end' || event.type === 'turn_end') {
       const events: AdapterEvent[] = [];
-      // Extract final assistant text from agent_end/turn_end messages array
       if (event.type === 'agent_end' || event.type === 'turn_end') {
-        const messages = (event as Record<string, unknown>).messages as Array<Record<string, unknown>> | undefined;
+        const messages = event.messages as Array<Record<string, unknown>> | undefined;
         if (messages) {
           for (const msg of messages) {
             if (msg.role === 'assistant') {
@@ -132,30 +103,10 @@ export class PiAdapter implements AgentAdapter {
       return events;
     }
 
-    // Unknown event type — log but don't emit
     return [];
   }
 
-  async detect(): Promise<DetectionResult | null> {
-    try {
-      const { stdout } = await execFileAsync('which', ['pi'], { timeout: 5000 });
-      // Get version
-      let version = 'unknown';
-      try {
-        const { stdout: vOut } = await execFileAsync('pi', ['--version'], { timeout: 5000 });
-        version = vOut.trim().split('\n')[0] ?? 'unknown';
-      } catch {
-        // Version check failed, continue with unknown
-      }
-      return {
-        binary: 'pi',
-        version,
-        path: stdout.trim(),
-        tier: 1,
-        protocol: 'jsonl-rpc',
-      };
-    } catch {
-      return null;
-    }
+  detect(): Promise<DetectionResult | null> {
+    return detectBinary('pi', 1, 'jsonl-rpc');
   }
 }

@@ -7,16 +7,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type { RpcHostToolExecutor, RpcParsedResponse } from '../types.ts';
-
-function log(level: string, msg: string, data?: Record<string, unknown>): void {
-  const entry: Record<string, unknown> = {
-    ts: new Date().toISOString(),
-    l: level,
-    m: msg,
-    ...(data ?? {}),
-  };
-  process.stderr.write(JSON.stringify(entry) + '\n');
-}
+import { log } from './log.ts';
 
 export function attachJsonlReader(
   stream: NodeJS.ReadableStream,

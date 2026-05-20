@@ -72,23 +72,15 @@ describe('PlumbTaskStore', () => {
   });
 
   test('cleanupStaleCompleted removes old terminal tasks', () => {
-    const now = Date.now();
-    // Manually inject an old completed task
-    const entry = store['entries']; // access private for test
-    entry.set('old', {
-      task: makeTask('old', 'completed'),
-      terminalSinceMs: now - 120_000, // 2 min ago
-    });
-    entry.set('new', {
-      task: makeTask('new', 'completed'),
-      terminalSinceMs: now, // just now
-    });
-    store.cleanupStaleCompleted();
-    // 'old' should be gone (0 retention)
-    expect(entry.has('old')).toBe(false);
-    // 'new' is still terminalSinceMs=now, so 0ms ago — within 0 retention? 
-    // Actually 0 retention = 0 * 60 * 1000 = 0, so now - 0 > 0 = true 
-    // Both get cleaned. Let's use a store with some retention.
+    const storeWithRetention = new PlumbTaskStore({ maxTasks: 5, completedRetentionMinutes: 1 });
+    const task = makeTask('old', 'completed');
+    storeWithRetention.save(task);
+    // Force entry to have old terminal timestamp by manipulating internals
+    // @ts-expect-error — accessing private for test
+    const entry = storeWithRetention.entries.get('old');
+    if (entry) entry.terminalSinceMs = Date.now() - 120_000; // 2 min ago
+    storeWithRetention.cleanupStaleCompleted();
+    expect(storeWithRetention.size).toBe(0);
   });
 
   test('size reflects stored count', async () => {

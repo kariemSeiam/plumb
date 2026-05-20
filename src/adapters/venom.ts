@@ -1,18 +1,10 @@
 // PLUMB — VENOM Adapter
-// Wraps `venom -p --output-format stream-json --permission-mode danger-full-access`.
-// Stream-json protocol, same shape as Cursor. Tier 3 (custom, no official updates).
-// Uses shared stream-json parser.
-//
-// VENOM is the in-house Rust CLI agent. It speaks the same stream-json dialect
-// as cursor-agent. The `-p` flag is --print. `--permission-mode danger-full-access`
-// auto-approves all tool calls (required for headless operation).
+// Wraps `venom --output-format stream-json --permission-mode danger-full-access`.
 
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import type { AgentAdapter, AgentTask, AdapterEvent, DetectionResult, PlumbConfig } from '../types.ts';
 import { tryParseLine, extractContentText, isConsolidatedAssistant, textDelta, statusEvent, errorEvent } from './stream-json.ts';
-
-const execFileAsync = promisify(execFile);
+import type { ContentBlockEvent } from './stream-json.ts';
+import { detectBinary } from './detect.ts';
 
 export class VenomAdapter implements AgentAdapter {
   readonly id = 'venom';
@@ -31,8 +23,8 @@ export class VenomAdapter implements AgentAdapter {
     { id: 'rust', name: 'Rust development', tags: ['rust', 'cargo'] },
   ];
 
-  buildArgs(_task: AgentTask, _config: PlumbConfig): string[] {
-    return ['--output-format', 'json', '--permission-mode', 'danger-full-access'];
+  buildArgs(): string[] {
+    return ['--output-format', 'stream-json', '--permission-mode', 'danger-full-access'];
   }
 
   formatInput(task: AgentTask): string {
@@ -49,11 +41,9 @@ export class VenomAdapter implements AgentAdapter {
     // System/user events — metadata only
     if (json.type === 'system' || json.type === 'user') return [];
 
-    // Assistant content blocks
     if (json.type === 'assistant') {
-      const contentEvent = json as unknown as Parameters<typeof extractContentText>[0];
-      if (isConsolidatedAssistant(contentEvent, this.streamPartial)) return [];
-      const extracted = extractContentText(contentEvent);
+      const extracted = extractContentText(json as ContentBlockEvent);
+      if (isConsolidatedAssistant(json as ContentBlockEvent, this.streamPartial)) return [];
       return extracted ? [textDelta(extracted)] : [];
     }
 
@@ -82,15 +72,7 @@ export class VenomAdapter implements AgentAdapter {
     return [];
   }
 
-  async detect(): Promise<DetectionResult | null> {
-    try {
-      const { stdout } = await execFileAsync('which', ['venom'], { timeout: 5000 });
-      let version = 'unknown';
-      try {
-        const { stdout: vOut } = await execFileAsync('venom', ['--version'], { timeout: 5000 });
-        version = vOut.trim().split('\n')[0] ?? 'unknown';
-      } catch { /* version check failed */ }
-      return { binary: 'venom', version, path: stdout.trim(), tier: 3, protocol: 'stream-json' };
-    } catch { return null; }
+  detect(): Promise<DetectionResult | null> {
+    return detectBinary('venom', 3, 'stream-json');
   }
 }

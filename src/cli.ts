@@ -21,14 +21,7 @@ function readPackageVersion(): string {
   }
 }
 
-function log(level: string, msg: string, data?: Record<string, unknown>): void {
-  process.stderr.write(JSON.stringify({
-    ts: new Date().toISOString(),
-    l: level,
-    m: msg,
-    ...(data ?? {}),
-  }) + '\n');
-}
+import { log } from './core/log.ts';
 
 const program = new Command()
   .name('plumb')
@@ -177,7 +170,12 @@ fleet
       }
 
       // Spawn all agents
-      type FleetServer = { id: string; port: number; executor: import('./core/executor.ts').PlumbExecutor; server: import('http').Server };
+      type FleetServer = {
+        id: string;
+        port: number;
+        executor: import('./core/executor.ts').PlumbExecutor;
+        server: import('http').Server;
+      };
       const fleetServers: FleetServer[] = [];
       for (const agent of config.agents) {
         const adapter = detectAdapter(agent.cli);

@@ -126,8 +126,6 @@ export function loadFleetConfig(path?: string): FleetConfig | null {
 export async function validateFleetConfig(config: FleetConfig): Promise<FleetValidation> {
   const { detectAll } = await import('./adapters/registry.ts');
   const detection = await detectAll();
-  const detected = new Map(detection.map(d => [d.name.toLowerCase(), d]));
-
   const seenPorts = new Set<number>();
   const seenIds = new Set<string>();
   const results: FleetValidation['agents'] = [];
@@ -136,23 +134,19 @@ export async function validateFleetConfig(config: FleetConfig): Promise<FleetVal
     const errors: string[] = [];
     const warnings: string[] = [];
 
-    // Check duplicate IDs
     if (seenIds.has(agent.id)) {
       errors.push(`duplicate agent id '${agent.id}'`);
     }
     seenIds.add(agent.id);
 
-    // Check duplicate ports
     if (seenPorts.has(agent.port)) {
       errors.push(`port ${agent.port} is already in use by another agent`);
     }
     seenPorts.add(agent.port);
 
-    // Check binary detection
-    const adapterKey = agent.cli.split(/[/\s]/).filter(Boolean).pop() ?? agent.cli;
     const match = detection.find(d =>
       agent.cli.includes(d.name.toLowerCase()) ||
-      (typeof d.path === 'string' && d.path.includes(adapterKey))
+      (typeof d.path === 'string' && d.path.includes(agent.cli.split(/[/\s]/).filter(Boolean).pop() ?? agent.cli))
     );
 
     if (!match || !match.found) {

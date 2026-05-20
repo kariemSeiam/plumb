@@ -17,6 +17,19 @@ import { Ledger } from './ledger.ts';
 import { PlumbExecutor } from './executor.ts';
 import { PlumbTaskStore } from './task-store.ts';
 
+let _pkgVersion: string | undefined;
+function getPackageVersion(): string {
+  if (_pkgVersion !== undefined) return _pkgVersion;
+  try {
+    const { readFileSync } = require('node:fs');
+    const pkg = JSON.parse(readFileSync('./package.json', 'utf8'));
+    _pkgVersion = pkg.version ?? '0.0.0';
+  } catch {
+    _pkgVersion = '0.0.0';
+  }
+  return _pkgVersion;
+}
+
 export function createPlumbServer(config: PlumbConfig & { adapter: AgentAdapter }) {
   const { adapter, port } = config;
   const name = config.name ?? `${adapter.displayName}-plumb`;
@@ -26,7 +39,7 @@ export function createPlumbServer(config: PlumbConfig & { adapter: AgentAdapter 
     name,
     description: `${adapter.displayName} via plumb — A2A bridge`,
     protocolVersion: '0.3.0',
-    version: '0.1.0',
+    version: getPackageVersion(),
     url: process.env.PLUMB_PUBLIC_URL ?? `http://localhost:${port}`,
     capabilities: { streaming: true },
     skills: adapter.skills.map(s => ({ ...s, description: s.name })),
