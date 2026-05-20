@@ -32,6 +32,22 @@ export class CursorAdapter implements AgentAdapter {
   readonly trust: boolean;
   readonly maxSessionTurns: number;
   readonly defaultModel: string;
+
+  // Model routing table — VENOM routes by task label → best model per job
+  readonly modelMap: Record<string, string> = {
+    build: 'gpt-5.3-codex-high-fast',
+    implement: 'gpt-5.3-codex-high-fast',
+    research: 'claude-opus-4-7-thinking-high',
+    deep: 'claude-opus-4-7-max-thinking-fast',
+    review: 'claude-4.5-opus-high',
+    audit: 'claude-opus-4-7-high',
+    fast: 'composer-2.5-fast',
+    default: 'composer-2.5-fast',
+    nano: 'gpt-5.4-nano-high',
+    plan: 'composer-2.5',
+    ask: 'composer-2.5-fast',
+  };
+
   readonly sessionStore: CursorSessionStore;
 
   private taskAssistantForRecap = '';
@@ -49,7 +65,7 @@ export class CursorAdapter implements AgentAdapter {
     this.yolo = opts.yolo ?? true;
     this.trust = opts.trust ?? true;
     this.maxSessionTurns = opts.maxSessionTurns ?? 50;
-    this.defaultModel = opts.defaultModel ?? 'composer-2-fast';
+    this.defaultModel = opts.defaultModel ?? 'composer-2.5-fast';
     this.sessionStore = opts.sessionStore ?? new CursorSessionStore({
       sessionTtlMs: opts.sessionTtlMs,
       recapMaxTurns: opts.recapMaxTurns,
@@ -64,7 +80,17 @@ export class CursorAdapter implements AgentAdapter {
     if (this.yolo) args.push('--yolo');
     if (this.trust) args.push('--trust');
 
-    const model = (task.context?.metadata?.model as string) ?? this.defaultModel;
+    // Route by task label → best model for job, else default
+    const labels = (task.context?.labels as string[]) ?? [];
+    let selectedModel = this.defaultModel;
+    for (const label of labels) {
+      if (this.modelMap[label]) {
+        selectedModel = this.modelMap[label];
+        break;
+      }
+    }
+    // Explicit model override wins
+    const model = (task.context?.metadata?.model as string) ?? selectedModel;
     args.push('--model', model);
 
     const workspace = task.context?.workdir ?? config.workdir;
