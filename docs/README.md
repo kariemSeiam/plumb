@@ -1,98 +1,93 @@
-# ═══════════════════════════════════════════
-# PLUMB · Quiet pipes for noisy agents
-# ═══════════════════════════════════════════
+# PLUMB — Documentation
+
+Architecture, contracts, and operational reference for the bridge.
+
+---
+
+## Architecture
 
 ```
-╔══════════════════════════════════════════╗
-║          PLUMB · v1.0.0                  ║
-║                                          ║
-║   ┌─────────┐     ┌─────────┐           ║
-║   │ Claude  │     │  Cursor │           ║
-║   │ :3002   │     │ :3003   │           ║
-║   └────┬────┘     └────┬────┘           ║
-║        │               │                ║
-║   ┌────┴───────┬───────┴────┐           ║
-║   │    PLUMB ( :3000 )      │           ║
-║   │   The switchboard       │           ║
-║   └────┬───────┬───────┬────┘           ║
-║        │       │       │                ║
-║   ┌────┴┐ ┌───┴───┐ ┌─┴──────┐         ║
-║   │ Pi  │ │Venom  │ │OpenCode│         ║
-║   │:3001│ │:3004  │ │:3005   │         ║
-║   └─────┘ └───────┘ └────────┘         ║
-║                                          ║
-║   ┌──────────────────────────────────┐   ║
-║   │ /agents · /ledger · /healthz     │   ║
-║   │ A2A · JSON-RPC · SSE · INK-lite │   ║
-║   └──────────────────────────────────┘   ║
-╚══════════════════════════════════════════╝
+Orchestrator → HTTP/JSON-RPC → PlumbServer
+                                     │
+                               PlumbExecutor
+                                     │
+                              spawn subprocess
+                                     │
+                            write formatInput → stdin
+                                     │
+                              read stdout lines
+                                     │
+                            AgentAdapter.parseLine
+                                     │
+                            [FangPostParse hook]
+                                     │
+                              handleEvents
+                               ├── text-delta  → ledger: progress    + A2A: artifact-update
+                               ├── tool-call   → ledger: progress    + A2A: artifact-update
+                               ├── tool-result → ledger: progress    + A2A: artifact-update
+                               ├── completed   → ledger: task_completed + A2A: message + finished
+                               └── error       → ledger: task_failed  + A2A: status(failed) + finished
 ```
 
-Plumb wraps any CLI coding agent as an A2A server.
-One AdapterContract. Eight implementations. One ledger format. Zero dashboards.
+**Eight adapters.** Registry order: Echo → Pi → Wolfy → Claude → Cursor → OpenCode → VENOM → Generic (implicit fallback).
+
+**Two process modes.** Oneshot: new subprocess per task. Persistent: one long-lived process, serial task queue.
+
+**One ledger.** Append-only JSONL in `.plumb/ledger/YYYY-MM-DD.jsonl`. Written before the A2A bus event. Crash-survivable.
 
 ---
 
-## Table of Contents
+## Files
 
-```
-design/                — What Plumb looks like and how it speaks
-  DESIGN.md            · Colors, typography, components
-  VOICE.md             · The voice: state, don't hedge
-  PHYSICS.md           · The plumb bob, gravity, the metaphor
-
-core/                  — What Plumb is
-  ARCHITECTURE.md      · How it works, end to end
-  PROTOCOL.md          · A2A endpoints, INK-lite, SSE
-  ADAPTERS.md          · 7 adapters, tiers, modes
-  LEDGER.md            · Append-only JSONL, SIPHON extraction
-  ERRORS.md            · Error taxonomy, cancellation, recovery
-  CONFIG.md            · plumb.yaml format
-  PULSE.md             · Observability, metrics, health
-
-fleet/                 — What Plumb runs
-  FLEET.md             · Multi-agent, routing, orchestrator
-  OPERATIONS.md        · Deployment, systemd, Docker
-
-soul/                  — What animates Plumb
-  PACT.md              · VENOM∞ integration
-  EVOLUTION.md         · v0.1 → v1.0.0 → afterlife
-  REFUSALS.md          · What Plumb will never build
-
-physical/              — The artifact
-  BOB.md               · The brass plumb bob
-
-∞.md                   — The horizon
-```
+| File | Purpose | Audience |
+|------|---------|---------|
+| `../README.md` | Install, quick start, adapter table | Everyone |
+| `../SPEC.md` | Living technical contract — what exists, what's stable | Engineers |
+| `../AGENTS.md` | Operating brief for AI agents working in this repo | AI agents |
+| `../DESIGN.md` | Design system — colors, typography, components | Contributors |
+| `ARCHITECTURE.md` | Pipeline, layers, event flow, process modes | Engineers |
+| `ADAPTERS.md` | Adapter contract, event types, tiers, how to build one | Adapter authors |
+| `LEDGER.md` | Schema, guarantees, jq query reference | Operators |
+| `FLEET.md` | plumb.yaml schema, fleet commands, systemd integration | Operators |
+| `MANIFEST.md` | What Plumb IS and IS NOT | Everyone |
+| `PLUMB-INFINITY.md` | Five fang classes, pipeline vision, recovery, symmetry | Engineers |
+| `ROADMAP.md` | Current state, Phase 3 priorities, deferred work | Engineers |
+| `WOLFY-MESH-PORT.md` | Wolfy — two interfaces, persistent memory, Pact, status | Integrators |
+| `TWO-AGENT-ORCHESTRATION.md` | Wolfy + Cursor nervous system, model routing, patterns | Orchestrators |
+| `VENOM-PLUMB-OPERATIONS.md` | VENOM∞ ↔ Plumb operations architecture | VENOM operators |
+| `∞.md` | Version roadmap and the afterlife | Everyone |
+| `workspace.md` | AI session quick-reference — crew, commands, memory tiers | AI agents |
+| `sessions/ARCH-001.md` | Architecture discussion transcript (2026-05-19) | Historical |
+| `../systemd/CUTOVER.md` | Fang → Plumb fleet cutover procedure | Operators |
 
 ---
 
-## One sentence
+## By Role
 
-Plumb is the adapter layer between any CLI agent and any A2A-compatible orchestrator. It does not think. It does not decide. It spawns, reads, writes, and exits. The ledger is the record. The operator is the intelligence.
+**I want to wrap a CLI in A2A:**
+`../README.md` → `FLEET.md` → `../systemd/CUTOVER.md`
+
+**I want to build an adapter:**
+`ADAPTERS.md` → `../src/types.ts` → `../test/adapter-parse.test.ts`
+
+**I want to understand the full architecture:**
+`ARCHITECTURE.md` → `../src/core/executor.ts`
+
+**I want to query the ledger:**
+`LEDGER.md`
+
+**I want to operate the production fleet:**
+`FLEET.md` → `OPERATING.md` → `../systemd/CUTOVER.md`
+
+**I want to understand VENOM integration:**
+`VENOM-PLUMB-OPERATIONS.md` → `PLUMB-INFINITY.md`
+
+**I want to understand Wolfy:**
+`WOLFY-MESH-PORT.md` → `TWO-AGENT-ORCHESTRATION.md`
+
+**I am an AI agent starting a session:**
+`../AGENTS.md` → `../MANIFEST.yaml` → `workspace.md`
 
 ---
 
-## Quick facts
-
-- **Runtime:** TypeScript on Bun
-- **Protocol:** A2A via @a2a-js/sdk
-- **Tests:** 90 tests, 156 assertions (7 test files, growing to 190+ at v1.0.0)
-- **Adapters:** 8 (echo, pi, wolfy, claude, cursor, opencode, venom, generic)
-- **Concurrency:** Configurable max (default 4)
-- **Ledger:** Append-only JSONL
-- **Refusal:** No dashboard, no LLM, no orchestration
-
----
-
-## The origin
-
-Plumb was not the first name. It was the last.
-
-Three framings — The Notary's Bench (portable trust), The Plumb Line (gravity-true reference), The Port City (where strangers dock). Forty-five names explored. The bet column settled it at $10M: Plumb, because the name is boring enough to survive procurement and heavy enough to mean something on a machined brass bob.
-
-The product saves the brand. Not the other way around.
-
----
-
-*Plumb is the pipe. Not the water. Not the reservoir. Not the plumber.*
+*The plumb bob hangs true because gravity is not negotiable. The docs hang true for the same reason.*

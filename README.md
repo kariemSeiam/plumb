@@ -129,6 +129,16 @@ Every task lifecycle event is appended to `.plumb/ledger/{YYYY-MM-DD}.jsonl`:
 
 Append-only. Never modified. Query with `jq`. Crash-survivable.
 
+```bash
+# Failed tasks today
+jq 'select(.type=="task_failed") | {taskId, error}' \
+  .plumb/ledger/$(date +%Y-%m-%d).jsonl
+
+# Reconstruct output for a task
+jq -r 'select(.type=="progress" and .taskId=="<id>") | .text' \
+  .plumb/ledger/$(date +%Y-%m-%d).jsonl
+```
+
 ## Architecture
 
 ```

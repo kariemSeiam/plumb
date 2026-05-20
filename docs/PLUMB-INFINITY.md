@@ -98,20 +98,20 @@ No layer lies to the one above. Partitioned accountability.
 | Component | State | Target |
 |-----------|-------|--------|
 | Adapter registry | ✅ 8 adapters | 8 adapters |
-| Persistent processes | ✅ ProcessManager | ProcessManager |
+| Persistent processes | ✅ ProcessManager + PersistentProcess | — |
 | Ledger | ✅ JSONL/day | JSONL/day + WAL |
-| Fleet | ✅ plumb.yaml | plumb.yaml |
-| Fang: Ingress | ❌ | Phase 1 |
-| Fang: Post-Parse | ❌ | Phase 1 |
-| OutputPolicy | ❌ | Phase 1 |
-| Fang: Ledger Observer | ❌ | Phase 2 |
-| Fang: Recovery | ❌ | Phase 2 |
+| Fleet | ✅ plumb.yaml + fleet validate/up/status | — |
+| Fang: Post-Parse | ✅ FangPostParse hook (`src/core/executor.ts:12`) | — |
+| Fang: Ingress | ❌ | Phase 3 |
 | Fang: Pre-Parse | ❌ | Phase 3 |
-| Runtime discovery | ❌ | Phase 2 |
-| WAL ahead of bus | ❌ | Phase 1 |
-| Intent log | ❌ | Phase 2 |
-| Per-adapter auth | ❌ | Phase 3 |
-| Session continuity | ❌ | Phase 2 |
+| OutputPolicy | ❌ | Phase 3 |
+| Fang: Ledger Observer | ❌ | Phase 3 |
+| Fang: Recovery | ❌ | Phase 3 |
+| Runtime discovery | ❌ | Phase 3 |
+| WAL ahead of bus | ❌ | Phase 3 |
+| Intent log | ❌ | Phase 3 |
+| Per-adapter auth | ❌ | Phase 4 |
+| Session continuity (mesh-wide) | ❌ | Phase 4 |
 
 ---
 

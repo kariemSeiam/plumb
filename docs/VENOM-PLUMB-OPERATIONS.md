@@ -93,6 +93,8 @@ tg-cron hourly → webhook → VENOM reads COMPASS
 
 ## VII. Hidden Engine — .venom Structure
 
+`.venom/` is gitignored. Local to the VENOM agent instance.
+
 ```
 .venom/
 ├── bridge/
@@ -106,7 +108,11 @@ tg-cron hourly → webhook → VENOM reads COMPASS
     └── pipeline.yaml           ← Build wave definitions
 ```
 
-**State machine:** IDLE → LOAD_INTENT → ROUTE → DISPATCH → DRAIN → POST_FLIGHT → FEEDBACK → IDLE
+**State machine:**
+
+```
+IDLE → LOAD_INTENT → ROUTE → DISPATCH → DRAIN → POST_FLIGHT → FEEDBACK → IDLE
+```
 
 ---
 

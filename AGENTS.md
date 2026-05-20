@@ -229,6 +229,7 @@ Plumb does not perform friendliness. Plumb routes tasks.
 | Memory (in Plumb)  | Ledger            |
 | Dashboard          | Logs / Health     |
 | Agent loop         | Bridge / Router   |
+| Plugin / hook      | Fang (for Fang-class extension points) |
 
 Body metaphors are **banned from all surfaces**. Research references only.
 
@@ -239,7 +240,8 @@ Body metaphors are **banned from all surfaces**. Research references only.
 | Scenario | Response |
 |----------|----------|
 | CLI process crashes mid-task | `onExit` fires → ledger: task_failed → bus.finished() |
-| Task timeout | timer fires → SIGTERM CLI → ledger: task_failed → bus.finished() |
+| Task timeout | timer fires → SIGTERM CLI → 5s → SIGKILL → ledger: task_failed → bus.finished() |
+| Persistent process crashes | All active task handlers receive `{"type":"error","message":"Process crashed"}` → tasks fail → process re-spawned on next task |
 | Ledger write fails | Log to stderr, continue. Ledger failure is non-fatal. |
 | `@a2a-js/sdk` request fails | SDK handles it. Plumb does not retry. Orchestrator decides. |
 | Port in use | Commander exits with error. User picks another port. |

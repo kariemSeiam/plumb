@@ -91,6 +91,36 @@ Done.
 
 ---
 
+## plumb.yaml — Two-Agent Fleet
+
+```yaml
+version: "1"
+agents:
+  - id: wolfy
+    cli: wolfy
+    port: 3007
+    mode: persistent
+    timeout: 600
+    env:
+      PI_CODING_AGENT_DIR: /opt/wolfy-data/agent
+
+  - id: cursor
+    cli: cursor-agent --print
+    port: 3003
+    mode: oneshot
+    timeout: 300
+```
+
+```bash
+plumb fleet validate   # confirm both adapters detected
+plumb fleet up         # boot both
+plumb fleet status     # verify wolfy agentAlive: true
+```
+
+If Wolfy crashes mid-task: all active handlers receive the crash error, task fails with `task_failed` in ledger, Plumb re-spawns on the next incoming task.
+
+---
+
 ## Plumb A2A Dispatch Format
 
 ### To Wolfy (persistent, port 3007)
