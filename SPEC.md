@@ -4,7 +4,7 @@
 
 Stays aligned with **`MANIFEST.yaml`** (product state), **`src/types.ts`** (interfaces), and **`src/`** (behavior). If this file disagrees with those, **trust the code and manifest first**, then update this doc.
 
-**Last synced:** 2026-05-20 — `plumb-bridge@0.1.2`, Phase 0 metrics PASS, 90 tests / 156 assertions, adapters: echo, pi, wolfy, claude, cursor, opencode, venom, generic.
+**Last synced:** 2026-05-23 — `plumb-bridge@0.1.3`, 99 tests / 182 assertions, INK metadata v2 (Day 1 complete), adapters: echo, pi, wolfy, claude, cursor, opencode, venom, generic.
 
 ---
 
@@ -17,6 +17,42 @@ Orchestrator → HTTP/JSON-RPC → Plumb → subprocess → CLI agent → parseL
 ```
 
 Plumb is not an agent. It has no LLM, no session memory, no orchestration. It spawns processes (or holds one persistent process), parses stdout lines, maps them to events, and writes **append-only JSONL**. Everything else is out of scope or refused.
+
+### Architectural Invariants
+
+These are the load-bearing walls. Every feature decision must pass these tests.
+
+**The "Wire + Minimum Policy" Principle:**
+
+> *Plumb is a wire plus a minimum policy plane required for safety. The policy plane will not grow into orchestration.*
+
+**What the policy plane covers:**
+- DOS protection (deadline admission, depth cap, request size limit)
+- Budget admission (prevents runaway mesh traversal — not fork-bomb prevention)
+- Self-preservation (rate limits, bulkheads — Day 7)
+- Clock skew detection (`senderUnixMs`)
+- Caller identity enforcement (authentication at the wire)
+
+**What the policy plane will never cover:**
+- Smart routing across discovered peers (expose data via `GET /a2a/peers` but don't route)
+- Internal retries (surface 503 + `Retry-After` only)
+- Agent selection (that's orchestration)
+- Task prioritization beyond admission
+- Content-based or capability-based dispatch
+
+**The Orchestration Test:**
+
+> *Plumb makes no decisions that depend on the content or declared capability of the agents it forwards to. Plumb decides whether to accept, throttle, or kill — never which agent does what.*
+
+**Authentication Principle:**
+
+> *Plumb enforces caller identity at the wire. Plumb does not make decisions based on caller identity beyond admission.*
+
+**Schema Evolution Rule:**
+
+> *Unknown fields in `params.message.metadata` MUST be ignored. Adding a field is never a wire-breaking change.*
+
+**Resource Isolation Note:** Plumb does not provide OS-level resource isolation for child processes (fork-bomb prevention, fd limits, memory caps). Operators are responsible for cgroup/ulimit/prlimit confinement of the Plumb process and its children. This may be added in a future version but is out of scope for v0.2.
 
 ---
 
@@ -64,6 +100,37 @@ bun run src/main.ts wrap cat --port 3001
 # POST /a2a/jsonrpc message/send → task runs
 # Ledger lines: task_submitted → task_running → progress → task_completed
 ```
+
+---
+
+## INK Metadata Protocol
+
+Every A2A message can carry structured metadata in `params.message.metadata`:
+
+```typescript
+interface TaskMetadata {
+  correlationId?: string;    // Multi-hop trace across mesh (max 128 chars)
+  depth?: number;            // A2A hop count (not local dispatches), maxDepth configurable
+  budgetMs?: number;         // Wall-clock budget from origin, real elapsed subtracted per hop
+  deadlineUnixMs?: number;   // Admission deadline — wall-clock enforcement in Day 5
+  senderUnixMs?: number;     // Sender's wall-clock at hop origination (clock skew detection)
+  priority?: 'critical' | 'normal' | 'background';
+  idempotencyKey?: string;   // Dedup key (max 256 chars)
+  traceparent?: string;      // W3C traceparent
+  tracestate?: string;       // W3C tracestate (max 512 chars)
+}
+```
+
+**Enforcement (admission-time only):**
+
+1. **Deadline:** `deadlineUnixMs` past → reject.
+2. **Depth:** `depth >= maxDepth` → reject. `depth++` per hop. Negative → reject.
+3. **Budget:** `remaining = budgetMs - (inboundUnixMs - senderUnixMs)`. `<= 0` → reject.
+4. **Precedence:** If `budgetMs` and `deadlineUnixMs` both set and disagree, `deadlineUnixMs` wins. Log warning.
+5. **senderUnixMs absent:** Accept at `depth == 0` (full budget). Reject at `depth > 0`.
+6. **Validation:** Negative depth/budget rejected. Malformed traceparent stripped. Field length limits enforced.
+
+**Unknown fields MUST be ignored** (schema evolution rule).
 
 ---
 
@@ -163,12 +230,24 @@ See **`MANIFEST.yaml`** → `build_state` and `identity.version` (aligned with n
 | State on disk | JSONL ledger only — no database |
 | Entry | `plumb wrap <cli> --port <n>` |
 | Extension | `FangPostParse` — transforms events after parseLine, before executor |
+| INK metadata location | `params.message.metadata` (JSON-RPC body, survives proxies) |
+| INK deadline semantic | `deadlineUnixMs` is **admission control only** until Day 5 ships wall-clock enforcement |
+| INK budget calculation | Real elapsed (`inboundUnixMs - senderUnixMs`), not a fixed constant |
+| INK budget vs deadline | `deadlineUnixMs` is canonical. `budgetMs` is derived hint on egress. If both set and disagree, deadline wins, log warning |
+| INK senderUnixMs absent | Accept at `depth == 0` (top-of-mesh), use full budget. Reject at `depth > 0` — inter-Plumb traffic without it means broken budget arithmetic |
+| INK depth cap | Configurable via `PlumbConfig.maxDepth`, default 4. Counts A2A hops only |
+| Ledger replication | CRDT merge (HLC + UUID), not Raft — per-task monotonic writes commute |
+| Bulkhead | Fixed % in v0.2, WFQ with floors in v0.3 |
+| Idempotency TTL | Independent of budget. 60s default, configurable per adapter |
+| Idempotency scope | `(callerIdentity, idempotencyKey)` — not global |
+| Idempotency concurrent | Duplicate mid-flight returns existing taskId immediately, no queue |
+| Request size limit | 10MB (`express.json({ limit: '10mb' })`)
 
 ---
 
 ## What Plumb will never build
 
-Not deferred — refused: dashboard-as-UI, Plumb-owned LLM memory, orchestration product, TUI/ANSI for the bridge, hot-reload plugin marketplace. Adapters are code in **`src/adapters/`** plus registry order.
+Not deferred — refused: dashboard-as-UI, Plumb-owned LLM memory, orchestration product, TUI/ANSI for the bridge, hot-reload plugin marketplace, smart routing, internal retries, content-based dispatch. Adapters are code in **`src/adapters/`** plus registry order.
 
 ---
 

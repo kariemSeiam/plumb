@@ -70,7 +70,7 @@ export function createPlumbServer(config: PlumbConfig & { adapter: AgentAdapter 
     ledger,
     taskStore,
     setupApp: (app: express.Express) => {
-      app.use(express.json({ limit: '10mb' }));
+      app.use(express.json({ limit: `${config.maxRequestBytes ?? 10_485_760}` })); // Default 10MB
 
       // Public — Agent Card and health MUST be unauthenticated (A2A spec)
       app.use('/.well-known/agent-card.json', agentCardHandler({ agentCardProvider: requestHandler }));
