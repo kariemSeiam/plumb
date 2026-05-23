@@ -6,6 +6,7 @@ export interface AgentTask {
   message: string;
   context?: {
     workdir?: string;
+    labels?: string[];
     metadata?: Record<string, unknown>;
   };
 }

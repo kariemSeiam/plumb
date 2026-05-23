@@ -27,7 +27,7 @@ function getPackageVersion(): string {
   } catch {
     _pkgVersion = '0.0.0';
   }
-  return _pkgVersion;
+  return _pkgVersion!;
 }
 
 export function createPlumbServer(config: PlumbConfig & { adapter: AgentAdapter }) {

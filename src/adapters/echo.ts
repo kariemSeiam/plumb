@@ -15,7 +15,7 @@ export class EchoAdapter implements AgentAdapter {
     { id: 'echo', name: 'Echo task input', tags: ['echo', 'test', 'conformance'] },
   ];
 
-  buildArgs(): string[] { return []; }
+  buildArgs(_task: AgentTask, _config: PlumbConfig): string[] { return []; }
 
   formatInput(task: AgentTask): string {
     return task.message + '\n';
