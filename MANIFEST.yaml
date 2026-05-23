@@ -107,12 +107,15 @@ build_state:
     - host_tool_frame_leak_fix
     - detect_all_wiring
     - docs_drift_scrub
+    - config_yaml_parsing
+    - config_tests
+    - fleet_up_graceful_shutdown
   current_wave: >
     Wave 2: Config + Fleet Boot.
     Declarative plumb.yaml + multi-agent boot story.
     No Pulse. No circuit breaker. No crash resume.
     Config is enabling constraint for every later wave.
-  next: config_yaml_parsing
+  next: phase_3_p0_stable_core
   blockers: []
   ci_note: Next npm publish after Wave 2 ships plumb fleet validate + up.
 
