@@ -2,9 +2,10 @@
 // plumb wrap <cli> --port <n>
 // That's the interface. Nothing else.
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 import { Command } from 'commander';
 import express from 'express';
 import { createPlumbServer } from './core/server.ts';
@@ -178,7 +179,7 @@ fleet
       };
       const fleetServers: FleetServer[] = [];
       for (const agent of config.agents) {
-        const adapter = detectAdapter(agent.cli);
+        const adapter = await detectAdapter(agent.cli);
         log('info', 'fleet_spawning', { id: agent.id, cli: agent.cli, port: agent.port, adapter: adapter.id });
 
         const { executor, setupApp } = createPlumbServer({
@@ -227,7 +228,7 @@ program
   .option('--workdir <dir>', 'Working directory for the CLI agent')
   .option('--timeout <seconds>', 'Task timeout in seconds', '300')
   .option('--key <apiKey>', 'Bearer token for /a2a endpoints')
-  .action((cli: string, opts: {
+  .action(async (cli: string, opts: {
     port: string;
     name?: string;
     workdir?: string;
@@ -240,7 +241,7 @@ program
       process.exit(1);
     }
 
-    const adapter = detectAdapter(cli);
+    const adapter = await detectAdapter(cli);
     log('info', 'adapter_detected', { cli, adapter: adapter.id, mode: adapter.mode, tier: adapter.tier });
 
     // Boot-time adapter matrix — logs all registered adapters once
@@ -285,6 +286,50 @@ program
 
     process.on('SIGINT', shutdown);
     process.on('SIGTERM', shutdown);
+  });
+
+// ─── Install command ─────────────────────────────────────────────────────────
+
+program
+  .command('install <package>')
+  .description('Install a Plumb adapter plugin from npm')
+  .action(async (pkg: string) => {
+    log('info', 'install_start', { package: pkg });
+
+    // Install via bun
+    const result = spawnSync('bun', ['add', pkg], { stdio: 'inherit' });
+    if (result.status !== 0) {
+      log('error', 'install_failed', { package: pkg });
+      process.exit(1);
+    }
+
+    // Register in .plumb/plugins.json
+    const plumbDir = join(process.cwd(), '.plumb');
+    if (!existsSync(plumbDir)) mkdirSync(plumbDir, { recursive: true });
+
+    const pluginsPath = join(plumbDir, 'plugins.json');
+    let plugins: string[] = [];
+    if (existsSync(pluginsPath)) {
+      try { plugins = JSON.parse(readFileSync(pluginsPath, 'utf8')) as string[]; } catch { /* start fresh */ }
+    }
+
+    if (!plugins.includes(pkg)) {
+      plugins.push(pkg);
+      writeFileSync(pluginsPath, JSON.stringify(plugins, null, 2) + '\n');
+    }
+
+    // Validate the adapter loads correctly
+    try {
+      const mod = await import(pkg) as { default?: { id?: string; displayName?: string } };
+      const adapter = mod.default;
+      if (!adapter || typeof adapter !== 'object' || !adapter.id) {
+        log('error', 'install_invalid_adapter', { package: pkg, reason: 'missing default export with .id' });
+        process.exit(1);
+      }
+      log('info', 'install_ok', { package: pkg, adapter: adapter.id, name: adapter.displayName ?? adapter.id });
+    } catch (err) {
+      log('warn', 'install_load_warning', { package: pkg, error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
 export { program };

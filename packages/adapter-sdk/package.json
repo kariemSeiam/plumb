@@ -1,0 +1,20 @@
+{
+  "name": "@plumb/adapter-sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for building Plumb adapters. Implement AgentAdapter to teach Plumb a new CLI agent.",
+  "type": "module",
+  "main": "src/index.ts",
+  "module": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": ["src"],
+  "license": "MIT",
+  "engines": { "bun": ">=1.1.0" },
+  "keywords": ["plumb", "a2a", "agent", "adapter", "sdk", "cli"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kariemSeiam/plumb.git",
+    "directory": "packages/adapter-sdk"
+  }
+}

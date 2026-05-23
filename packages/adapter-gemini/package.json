@@ -1,0 +1,26 @@
+{
+  "name": "@plumb/adapter-gemini",
+  "version": "0.1.0",
+  "description": "Plumb adapter for Google Gemini CLI. Install with: plumb install @plumb/adapter-gemini",
+  "type": "module",
+  "main": "src/index.ts",
+  "module": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": ["src"],
+  "license": "MIT",
+  "engines": { "bun": ">=1.1.0" },
+  "keywords": ["plumb", "a2a", "agent", "adapter", "gemini", "google"],
+  "dependencies": {
+    "@plumb/adapter-sdk": "workspace:*"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kariemSeiam/plumb.git",
+    "directory": "packages/adapter-gemini"
+  },
+  "peerDependencies": {
+    "bun": ">=1.1.0"
+  }
+}
