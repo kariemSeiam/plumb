@@ -16,6 +16,7 @@ import type { AgentAdapter, PlumbConfig } from '../types.ts';
 import { Ledger } from './ledger.ts';
 import { PlumbExecutor } from './executor.ts';
 import { PlumbTaskStore } from './task-store.ts';
+import { writeRegistration } from './registry.ts';
 
 let _pkgVersion: string | undefined;
 function getPackageVersion(): string {
@@ -64,11 +65,30 @@ export function createPlumbServer(config: PlumbConfig & { adapter: AgentAdapter 
   // Don't hold the process open
   if (cleanupInterval.unref) cleanupInterval.unref();
 
+  // Register in the filesystem registry
+  const pid = process.pid;
+  try {
+    writeRegistration({
+      name,
+      port,
+      pid,
+      adapter: adapter.id,
+      mode: adapter.mode,
+      tier: adapter.tier,
+      uptime: Date.now(),
+      healthUrl: `http://localhost:${port}/health`,
+      agentCardUrl: `http://localhost:${port}/.well-known/agent-card.json`,
+      jsonrpcUrl: `http://localhost:${port}/a2a/jsonrpc`,
+    });
+  } catch { /* non-fatal */ }
+
   return {
     executor,
     agentCard,
     ledger,
     taskStore,
+    /** Name used for registry. Call unregister() during shutdown. */
+    registryName: name,
     setupApp: (app: express.Express) => {
       app.use(express.json({ limit: `${config.maxRequestBytes ?? 10_485_760}` })); // Default 10MB
 

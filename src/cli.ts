@@ -10,6 +10,7 @@ import express from 'express';
 import { createPlumbServer } from './core/server.ts';
 import { detectAdapter, detectAll } from './adapters/registry.ts';
 import { loadFleetConfig, validateFleetConfig, agentToPlumbConfig, resolveConfigPath } from './config.ts';
+import { readAllRegistrations, findRegistration, writeRegistration, unregister } from './core/registry.ts';
 
 function readPackageVersion(): string {
   try {
@@ -194,6 +195,22 @@ fleet
         });
 
         fleetServers.push({ id: agent.id, port: agent.port, executor, server });
+
+        // Register fleet agent
+        try {
+          writeRegistration({
+            name: agent.id,
+            port: agent.port,
+            pid: process.pid,
+            adapter: adapter.id,
+            mode: adapter.mode,
+            tier: adapter.tier,
+            uptime: Date.now(),
+            healthUrl: `http://localhost:${agent.port}/health`,
+            agentCardUrl: `http://localhost:${agent.port}/.well-known/agent-card.json`,
+            jsonrpcUrl: `http://localhost:${agent.port}/a2a/jsonrpc`,
+          });
+        } catch { /* non-fatal */ }
       }
 
       log('info', 'fleet_up', { agentCount: fleetServers.length, ports: fleetServers.map(s => s.port) });
@@ -201,6 +218,10 @@ fleet
       // Graceful shutdown — mirrors wrap command behavior
       const fleetShutdown = async () => {
         log('info', 'fleet_shutdown', {});
+        // Unregister all fleet agents
+        for (const s of fleetServers) {
+          unregister(s.id);
+        }
         await Promise.allSettled(fleetServers.map(s => s.executor.shutdown()));
         await Promise.allSettled(fleetServers.map(s => new Promise<void>(r => s.server.close(() => r()))));
         process.exit(0);
@@ -250,7 +271,7 @@ program
       log('warn', 'adapter_matrix_error', { error: err instanceof Error ? err.message : String(err) });
     });
 
-    const { executor, setupApp } = createPlumbServer({
+    const { executor, setupApp, registryName } = createPlumbServer({
       adapter,
       cli,
       port,
@@ -279,12 +300,300 @@ program
 
     const shutdown = async () => {
       log('info', 'plumb_shutdown', {});
+      unregister(registryName);
       await executor.shutdown();
       server.close(() => process.exit(0));
     };
 
     process.on('SIGINT', shutdown);
     process.on('SIGTERM', shutdown);
+  });
+
+// ─── ps command ──────────────────────────────────────────────────────
+
+program
+  .command('ps')
+  .description('List all running Plumb agents')
+  .option('--json', 'Output as JSON')
+  .action(async (opts: { json?: boolean }) => {
+    const regs = readAllRegistrations();
+
+    if (opts.json) {
+      console.log(JSON.stringify(regs, null, 2));
+      return;
+    }
+
+    if (regs.length === 0) {
+      log('info', 'no_registrations', { hint: 'No Plumb agents found in registry' });
+      return;
+    }
+
+    // Table header
+    const header = ['NAME', 'ADAPTER', 'MODE', 'PORT', 'PID', 'UPTIME', 'STATUS'];
+    const rows: string[][] = [];
+
+    for (const reg of regs) {
+      let status = 'unknown';
+      try {
+        const res = await fetch(reg.healthUrl, { signal: AbortSignal.timeout(2000) });
+        if (res.ok) {
+          const body = await res.json().catch(() => ({})) as Record<string, unknown>;
+          status = typeof body.status === 'string' ? body.status : 'ok';
+        } else {
+          status = `HTTP ${res.status}`;
+        }
+      } catch {
+        status = 'down';
+      }
+
+      const uptime = Math.floor((Date.now() - reg.uptime) / 1000);
+      const uptimeStr = uptime < 60 ? `${uptime}s`
+        : uptime < 3600 ? `${Math.floor(uptime / 60)}m`
+        : `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m`;
+
+      rows.push([
+        reg.name,
+        reg.adapter,
+        reg.mode,
+        String(reg.port),
+        String(reg.pid),
+        uptimeStr,
+        status,
+      ]);
+    }
+
+    // Calculate column widths
+    const widths = header.map((h, i) => Math.max(h.length, ...rows.map(r => (r[i] ?? '').length)));
+
+    // Print header
+    const hLine = header.map((h, i) => h.padEnd(widths[i])).join('  ');
+    console.log(hLine);
+    console.log('-'.repeat(hLine.length));
+
+    // Print rows
+    for (const row of rows) {
+      console.log(row.map((c, i) => c.padEnd(widths[i])).join('  '));
+    }
+
+    console.log();
+    log('info', 'ps_summary', { count: regs.length });
+  });
+
+// ─── status command (single agent) ───────────────────────────────────
+
+program
+  .command('status')
+  .description('Show detailed status of a Plumb agent')
+  .argument('[name]', 'Agent name (omit to list all)')
+  .option('--json', 'Output as JSON')
+  .action(async (name?: string, opts?: { json?: boolean }) => {
+    const json = opts?.json ?? false;
+
+    if (!name) {
+      // List all — delegate to ps command
+      await program.parseAsync(['node', 'plumb', 'ps', ...(json ? ['--json'] : [])]);
+      return;
+    }
+
+    const reg = findRegistration(name);
+    if (!reg) {
+      log('error', 'agent_not_found', { name, hint: 'Use plumb ps to list available agents' });
+      process.exit(1);
+    }
+
+    // Get health
+    let health: Record<string, unknown> = {};
+    let healthy = false;
+    try {
+      const res = await fetch(reg.healthUrl, { signal: AbortSignal.timeout(2000) });
+      if (res.ok) {
+        health = await res.json().catch(() => ({})) as Record<string, unknown>;
+        healthy = true;
+      } else {
+        health = { status: `HTTP ${res.status}` };
+      }
+    } catch (err) {
+      health = { status: 'unreachable', error: err instanceof Error ? err.message : String(err) };
+    }
+
+    if (json) {
+      console.log(JSON.stringify({ registration: reg, health }, null, 2));
+      return;
+    }
+
+    console.log(`Agent:    ${reg.name}`);
+    console.log(`Adapter:  ${reg.adapter} (tier ${reg.tier}, ${reg.mode})`);
+    console.log(`Port:     ${reg.port}`);
+    console.log(`PID:      ${reg.pid}`);
+    console.log(`Uptime:   ${Math.floor((Date.now() - reg.uptime) / 1000)}s`);
+    console.log(`Health:   ${healthy ? '✅ ' + (health.status as string ?? 'ok') : '❌ ' + (health.status as string ?? 'down')}`);
+    console.log(`RPC:      ${reg.jsonrpcUrl}`);
+    console.log(`Card:     ${reg.agentCardUrl}`);
+  });
+
+// ─── send command ────────────────────────────────────────────────────
+
+program
+  .command('send')
+  .description('Send a message to a Plumb agent and get a response')
+  .argument('<agent>', 'Agent name or URL')
+  .argument('[message]', 'Message text (or read from stdin)')
+  .option('--json', 'Output raw JSON response')
+  .option('--port <number>', 'Target port (bypasses registry lookup)')
+  .option('--url <url>', 'Target URL (bypasses registry lookup)')
+  .option('--timeout <seconds>', 'Request timeout (default 300 for oneshot agent spawn)', '300')
+  .option('--verbose', 'Show A2A request shape')
+  .action(async (agent: string, message?: string, opts?: {
+    json?: boolean;
+    port?: string;
+    url?: string;
+    timeout?: string;
+    verbose?: boolean;
+  }) => {
+    const jsonOutput = opts?.json ?? false;
+    const verbose = opts?.verbose ?? false;
+    const timeoutMs = parseInt(opts?.timeout ?? '300', 10) * 1000;
+
+    // Resolve target URL
+    let targetUrl: string;
+    if (opts?.url) {
+      targetUrl = opts.url.replace(/\/+$/, '') + '/a2a/jsonrpc';
+    } else if (opts?.port) {
+      targetUrl = `http://localhost:${opts.port}/a2a/jsonrpc`;
+    } else {
+      const reg = findRegistration(agent);
+      if (!reg) {
+        log('error', 'agent_not_found', {
+          name: agent,
+          hint: 'Use plumb ps to list available agents, or use --port or --url',
+        });
+        process.exit(1);
+      }
+      targetUrl = reg.jsonrpcUrl;
+    }
+
+    // Get message from argument or stdin
+    let text = message;
+    if (!text) {
+      // Read from stdin
+      const stdin = process.stdin;
+      if (stdin.isTTY) {
+        log('error', 'no_message', { hint: 'Provide message as argument or pipe to stdin' });
+        process.exit(1);
+      }
+      const chunks: Buffer[] = [];
+      for await (const chunk of stdin) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      text = Buffer.concat(chunks).toString('utf8').trim();
+    }
+
+    if (!text) {
+      log('error', 'empty_message', {});
+      process.exit(1);
+    }
+
+    const messageId = `plumb-send-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    const rpcRequest = {
+      jsonrpc: '2.0',
+      method: 'message/send',
+      params: {
+        message: {
+          messageId,
+          role: 'user',
+          kind: 'message',
+          parts: [{ kind: 'text', text }],
+        },
+      },
+    };
+
+    if (verbose) {
+      console.error('→ POST', targetUrl);
+      console.error(JSON.stringify(rpcRequest, null, 2));
+    }
+
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+      const res = await fetch(targetUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(rpcRequest),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+
+      if (!res.ok) {
+        const body = await res.text().catch(() => '(empty)');
+        log('error', 'send_failed', { httpStatus: res.status, body: body.slice(0, 500) });
+        process.exit(1);
+      }
+
+      const response = await res.json() as Record<string, unknown>;
+
+      if (verbose) {
+        console.error('←', res.status, JSON.stringify(response, null, 2));
+      }
+
+      // Extract and print response text
+      if (jsonOutput) {
+        console.log(JSON.stringify(response, null, 2));
+        return;
+      }
+
+      const result = response.result as Record<string, unknown> | undefined;
+
+      // Extract text from response, handling both message-kind and task-kind
+      let outputParts: string[] = [];
+
+      if (result) {
+        if (Array.isArray(result.parts)) {
+          // message-kind: result.parts[{kind, text}]
+          for (const part of result.parts) {
+            const p = part as Record<string, unknown>;
+            if (p.kind === 'text' && typeof p.text === 'string') {
+              outputParts.push(p.text);
+            }
+          }
+        }
+
+        // task-kind: result.status.artifacts[{parts:[{text}]}]
+        const status = result.status as Record<string, unknown> | undefined;
+        if (status && Array.isArray(status.artifacts)) {
+          for (const artifact of status.artifacts) {
+            const a = artifact as Record<string, unknown>;
+            if (Array.isArray(a.parts)) {
+              for (const part of a.parts) {
+                const p = part as Record<string, unknown>;
+                if (typeof p.text === 'string') {
+                  outputParts.push(p.text);
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (outputParts.length > 0) {
+        process.stdout.write(outputParts.join('') + '\n');
+      } else if (response.error) {
+        const err = response.error as Record<string, unknown>;
+        log('error', 'rpc_error', { code: err.code, message: err.message });
+        process.exit(1);
+      } else {
+        // Fallback: print raw JSON
+        console.log(JSON.stringify(response));
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log('error', 'send_error', { error: msg });
+      if (msg.includes('abort')) {
+        log('error', 'send_timeout', { timeout: `${timeoutMs}ms` });
+      }
+      process.exit(1);
+    }
   });
 
 export { program };

@@ -33,7 +33,7 @@
     "start": "bun run src/main.ts",
     "wrap": "bun run src/main.ts wrap",
     "typecheck": "tsc --noEmit",
-    "test": "bun test test/conformance.test.ts",
+    "test": "bun test",
     "prepack": "npm run typecheck",
     "prepublishOnly": "npm run test && npm run typecheck"
   },
