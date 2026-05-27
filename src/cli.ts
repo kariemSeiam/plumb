@@ -248,6 +248,7 @@ program
   .option('--workdir <dir>', 'Working directory for the CLI agent')
   .option('--timeout <seconds>', 'Task timeout in seconds', '300')
   .option('--key <apiKey>', 'Bearer token for /a2a endpoints')
+  .option('--deny', 'Deny all requests when no --key is set (secure-by-default)')
   .action((cli: string, opts: {
     port: string;
     name?: string;
@@ -279,6 +280,7 @@ program
       workdir: opts.workdir,
       taskTimeout: parseInt(opts.timeout, 10),
       apiKey: opts.key,
+      denyWithoutKey: (opts as Record<string, unknown>).deny === true,
     });
 
     const app = express();

@@ -165,6 +165,9 @@ export class PersistentProcess {
   }>();
   private rpcDefaultTimeoutMs = 120_000;
   private rpcHostExecutor: RpcHostToolExecutor | undefined;
+
+  /** Callback for stderr output from the persistent process. */
+  onStderr: ((text: string) => void) | null = null;
   private hostAbortByRequestId = new Map<string, AbortController>();
 
   readonly onCrash?: (crashedTaskId: string, remainingCount: number) => void;
@@ -275,8 +278,11 @@ export class PersistentProcess {
       this.routeLine(line);
     });
 
-    this.proc.stderr!.on('data', () => {
-      // stderr from persistent process — ignored
+    this.proc.stderr!.on('data', (chunk: Buffer) => {
+      const text = chunk.toString().trim();
+      if (text && this.onStderr) {
+        this.onStderr(text);
+      }
     });
 
     this.proc.on('exit', () => {

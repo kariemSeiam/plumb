@@ -65,6 +65,8 @@ export function createPlumbServer(config: PlumbConfig & { adapter: AgentAdapter 
   // Don't hold the process open
   if (cleanupInterval.unref) cleanupInterval.unref();
 
+  const startTime = Date.now();
+
   // Register in the filesystem registry
   const pid = process.pid;
   try {
@@ -105,6 +107,8 @@ export function createPlumbServer(config: PlumbConfig & { adapter: AgentAdapter 
           mode: adapter.mode,
           tier: adapter.tier,
           ledger: ledger.getPath(),
+          ledgerEntries: ledger.getEntryCount(),
+          uptime: Math.floor((Date.now() - startTime) / 1000),
         };
         const alive = executor.isPersistentAlive();
         if (alive !== null) {
@@ -113,8 +117,9 @@ export function createPlumbServer(config: PlumbConfig & { adapter: AgentAdapter 
         res.json(health);
       });
 
-      // Auth gate — protects A2A endpoints if apiKey is configured
+      // Auth gate — protects A2A endpoints
       if (config.apiKey) {
+        // Key-based auth: reject if Bearer token doesn't match
         const expected = Buffer.from(`Bearer ${config.apiKey}`);
         app.use((req: Request, res: Response, next: NextFunction) => {
           const header = req.headers.authorization ?? '';
@@ -123,6 +128,11 @@ export function createPlumbServer(config: PlumbConfig & { adapter: AgentAdapter 
             return res.status(401).json({ error: { message: 'Unauthorized' } });
           }
           next();
+        });
+      } else if (config.denyWithoutKey) {
+        // Deny mode: reject all requests without a key
+        app.use((_req: Request, res: Response) => {
+          res.status(401).json({ error: { message: 'Unauthorized — no API key configured, deny mode active' } });
         });
       }
 

@@ -68,6 +68,8 @@ export interface PlumbConfig {
   maxDepth?: number;
   /** Max request body size in bytes. Default 10MB (10485760). */
   maxRequestBytes?: number;
+  /** If true and no apiKey is set, reject all A2A requests. */
+  denyWithoutKey?: boolean;
 }
 
 export interface DetectionResult {

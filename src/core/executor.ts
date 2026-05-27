@@ -346,6 +346,16 @@ export class PlumbExecutor implements AgentExecutor {
         cwd: config.workdir,
         env: config.env,
       });
+      // Forward persistent stderr to ledger
+      this.persistent.onStderr = (text: string) => {
+        this.ledger.append({
+          type: 'log',
+          taskId: '(persistent)',
+          level: 'stderr',
+          text,
+          timestamp: new Date().toISOString(),
+        });
+      };
     }
     await this.persistent.ensure();
     // Short ready-wait (30s). If agent never emits ready frame but is alive, proceed.
