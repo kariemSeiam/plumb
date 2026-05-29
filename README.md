@@ -2,21 +2,23 @@
 
 *Quiet pipes for noisy agents.*
 
-Plumb wraps CLI coding agents as [A2A](https://google.github.io/A2A/) HTTP servers.
-It has no LLM, no memory, no orchestration.
-It spawns processes, reads stdout, writes JSONL, and exits.
+Plumb wraps CLI coding agents into [A2A](https://google.github.io/A2A/) HTTP servers.
+It spawns subprocesses, reads stdout, writes JSONL, and exits.
+That is the entire pipeline. Nothing else.
 
 One command. One ledger. Eight adapters. Zero dashboards.
 
-```bash
-plumb wrap claude --port 3000
-```
+---
 
-Your CLI agent is now an A2A-compliant server.
+## Why
+
+Every AI agent has a CLI. Claude has `claude --print`. Cursor has `cursor-agent`. Pi has `pi`. Wolfy has `wolfy`. They all read from stdin, write to stdout, and speak different protocols.
+
+Plumb is the adapter layer that makes them interchangeable. One A2A endpoint. One ledger format. Eight protocol parsers. The orchestration — which agent, what task, when — is yours.
 
 ---
 
-## What that command does
+## How
 
 ```
 you ──→ POST /a2a/jsonrpc ──→ Plumb ──→ claude (subprocess) ──→ stdout
@@ -30,44 +32,39 @@ you ──→ POST /a2a/jsonrpc ──→ Plumb ──→ claude (subprocess) �
                                  (to you)     (on disk)
 ```
 
-Plumb reads `stdout`, parses it into events, streams them to your client via SSE, and writes every event to an append-only JSONL ledger. That's the entire pipeline.
+Plumb does not generate text. It does not decide. It does not remember. It moves bytes from one process to another and records what happened.
 
 ---
 
-## Try it in 60 seconds
+## Try
 
 ```bash
-# Terminal 1 — start a Plumb server
+# Terminal 1
 plumb wrap cat --port 3001
 
-# Terminal 2 — send a task
+# Terminal 2
 curl -X POST http://localhost:3001/a2a/jsonrpc \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
     "id": "1",
-    "method": "tasks/send",
+    "method": "message/send",
     "params": {
       "id": "demo",
       "message": { "role": "user", "parts": [{ "type": "text", "text": "Hello" }] }
     }
   }'
-```
 
-The SSE stream returns three events: `task` (working), `artifact-update` (the response), and the final `message`. The ledger records all of them.
-
-```bash
-# Read the ledger
+# See the ledger
 cat .plumb/ledger/$(date +%Y-%m-%d).jsonl | jq '.'
 ```
 
 ---
 
-## Fleet mode
-
-Define your agents in `plumb.yaml`:
+## Fleet
 
 ```yaml
+# plumb.yaml
 version: "1"
 agents:
   - id: claude
@@ -76,28 +73,24 @@ agents:
   - id: cursor
     cli: cursor-agent --print
     port: 3003
+  - id: wolfy
+    cli: wolfy
+    port: 3007
+    mode: persistent
+    timeout: 600
 ```
 
 ```bash
 plumb fleet validate   # check config
-plumb fleet up         # boot all agents
+plumb fleet up         # boot all
 plumb fleet status     # health check all
 ```
 
-Full schema: [docs/FLEET.md](./docs/FLEET.md)
+---
 
 ## Adapters
 
-Eight protocol parsers, one contract:
-
-```typescript
-interface AgentAdapter {
-  buildArgs(task, config): string[]
-  formatInput(task): string
-  parseLine(line): AdapterEvent[]
-  detect(): DetectionResult | null
-}
-```
+Eight protocol parsers, one contract. Adapters implement `buildArgs`, `formatInput`, `parseLine`, `detect`. The registry matches by binary name. Generic is the fallback.
 
 | Adapter   | CLI             | Mode       | Protocol       |
 |-----------|-----------------|------------|----------------|
@@ -110,29 +103,13 @@ interface AgentAdapter {
 | VENOM     | `venom`         | oneshot    | stream-json    |
 | Generic   | any             | oneshot    | text           |
 
-Full contract: [docs/ADAPTERS.md](./docs/ADAPTERS.md)
-
----
-
-## What Plumb refuses
-
-| Refusal | Why |
-|---------|-----|
-| No dashboard | Health is `200` or `400`. A bar chart adds nothing. |
-| No orchestration | You decide which agent. Plumb routes by label. |
-| No LLM | Transport layer. Not intelligence layer. |
-| No plugins | Adapter contract is the only extension point. |
-| No memory | The ledger records. It does not learn. |
-| No supervision | systemd does it better. |
-| No platform | npm is the distribution. GitHub is the source. |
-
-Each refusal is a wall that keeps the pipe from leaking into places it doesn't belong. [docs/soul/REFUSALS.md](./docs/soul/REFUSALS.md)
+[Full contract →](docs/ADAPTERS.md)
 
 ---
 
 ## The ledger
 
-Every task leaves a trace. Append-only JSONL, one file per UTC day.
+Every event, every task, every completion — appended to `.plumb/ledger/YYYY-MM-DD.jsonl`. Never modified. Never deleted by Plumb. Crash-survivable — a missing `task_completed` IS the crash signal.
 
 ```jsonl
 {"type":"task_submitted","taskId":"abc","cli":"claude","message":"refactor auth"}
@@ -143,39 +120,55 @@ Every task leaves a trace. Append-only JSONL, one file per UTC day.
 {"type":"task_completed","taskId":"abc"}
 ```
 
-Never modified. Never deleted by Plumb. Crash-survivable — a missing `task_completed` IS the crash signal.
-
 ```bash
 # Failed tasks today
 jq 'select(.type=="task_failed") | {taskId, error}' \
   .plumb/ledger/$(date +%Y-%m-%d).jsonl
 
-# Show thinking alongside output for a task
+# Show thinking alongside output
 jq 'select(.taskId=="abc" and (.type=="thinking" or .type=="progress")) | .text' \
   .plumb/ledger/$(date +%Y-%m-%d).jsonl
 ```
 
-Full schema: [docs/LEDGER.md](./docs/LEDGER.md)
+[Full schema →](docs/LEDGER.md)
 
 ---
 
-## Architecture decisions — honest edges
+## What Plumb refuses — and why
 
-Every choice is a bet. Here is where each bet could fail.
+These are not limitations. They are walls that keep the pipe from leaking.
+
+| Refusal | Why |
+|---------|-----|
+| **No dashboard** | Health is `200` or `400`. A bar chart adds nothing. |
+| **No orchestration** | You route by label. Plumb does not decide which agent deserves a task. |
+| **No LLM** | Transport layer. Not intelligence layer. Plumb doesn't call model APIs. |
+| **No plugins** | The adapter contract is the only extension point. Changing it requires a commit and a test. |
+| **No memory** | The ledger records. It does not learn, summarize, or cross-reference. SIPHON does that. |
+| **No supervision** | systemd spawns processes. Plumb executes tasks. systemd restarts on crash. Plumb does not. |
+| **No platform** | npm is the distribution. GitHub is the source. There is no managed cloud. |
+
+Each refusal protects a boundary. Full reasoning in [docs/soul/REFUSALS.md](docs/soul/REFUSALS.md).
+
+---
+
+## Architecture bets — and their honest edges
+
+Every architecture decision is a bet. These are the failure conditions of each bet.
 
 | Decision | Choice | Could fail when |
 |----------|--------|----------------|
-| Ledger | Append-only JSONL, query with jq | 10K+ tasks/day without DuckDB. No schema version — old and new entries mix. |
-| Runtime | Bun | Smaller ecosystem, fewer deployments. Locked in if Bun stalls. |
-| Streaming | A2A + SSE | No delivery guarantees. Client can miss final event. |
-| Delivery | Fire-and-forget | Slow consumers buffer in memory. No exactly-once. |
-| Config | YAML | YAML footguns (anchors, type coercion). CI validates. |
+| **Ledger** | Append-only JSONL, query with jq | 10K+ tasks/day without DuckDB becomes slow. No schema version in file — old and new entries mix. |
+| **Runtime** | Bun | Smaller ecosystem than Node. Locked in if Bun's development stalls. |
+| **Streaming** | A2A + SSE | SSE has no delivery guarantees. Client can miss the final event. Ledger is the fallback. |
+| **Delivery** | Fire-and-forget | No exactly-once. Slow consumers buffer in server memory. |
+| **Config** | YAML plumb.yaml | YAML's footguns (anchors, type coercion, tabs). CI validates on commit. |
 
-Full ADRs: [DESIGN.md](./DESIGN.md)
+Full ADRs with rationale and mitigations in [DESIGN.md](DESIGN.md).
 
 ---
 
-## Protocol surface
+## Surface
 
 | Method | Path | Auth |
 |--------|------|------|
@@ -185,21 +178,18 @@ Full ADRs: [DESIGN.md](./DESIGN.md)
 | POST | `/a2a/jsonrpc` | Bearer (if configured) |
 | * | `/a2a/rest` | Bearer (if configured) |
 
----
-
-## Development
+## Setup
 
 ```bash
-bun install          # dependencies
-bun test             # 101 tests, 0 fail
-bun run typecheck    # TypeScript
-plumb wrap cat --port 3001  # local test
-```
-
-## Install
-
-```bash
+# Install
 bun add -g plumb-bridge
+
+# Run tests
+bun test             # 101 pass, 0 fail
+bun run typecheck    # TypeScript
+
+# Run locally
+plumb wrap cat --port 3001
 ```
 
 Requires Bun >= 1.1.0.
@@ -210,22 +200,22 @@ Requires Bun >= 1.1.0.
 
 ```
 src/
-  types.ts             AdapterEvent, LedgerEvent, AgentAdapter contract
+  types.ts             AdapterEvent, LedgerEvent, AgentAdapter
   cli.ts               plumb wrap, fleet commands
   adapters/            8 adapters + binary registry
   core/
-    executor.ts        Task dispatch, event routing, ledger, INK validation
+    executor.ts        Task dispatch, INK validation, event routing, ledger
     process.ts         ProcessManager + PersistentProcess
     server.ts          Express + A2A SDK, auth, Agent Card
-    ledger.ts          Append-only JSONL
-    task-store.ts      LRU + TTL task memory
-    session-store.ts   Cursor multi-turn sessions
+    ledger.ts          Append-only JSONL writer
+    task-store.ts      LRU + TTL bounded task memory
+    session-store.ts   Cursor multi-turn session tracking
 docs/
-  DESIGN.md            ADRs with honest edges
+  DESIGN.md            Architecture Decision Records with honest edges
   ARCHITECTURE.md      Pipeline, layers, crash resilience
   ADAPTERS.md          Adapter implementation guide
   LEDGER.md            Schema and query patterns
-  FLEET.md             Fleet config
+  FLEET.md             Fleet config and lifecycle
   soul/                PACT, REFUSALS, EVOLUTION
 ```
 
