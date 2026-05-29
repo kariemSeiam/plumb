@@ -6,7 +6,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { AgentAdapter, AgentTask, AdapterEvent, DetectionResult, PlumbConfig } from '../types.ts';
-import { tryParseLine, extractContentText, textDelta, statusEvent, errorEvent } from './stream-json.ts';
+import { tryParseLine, extractContentText, extractContentThinking, textDelta, thinkingEvent, statusEvent, errorEvent } from './stream-json.ts';
 import type { ContentBlockEvent } from './stream-json.ts';
 import { detectBinary } from './detect.ts';
 
@@ -42,10 +42,14 @@ export class ClaudeAdapter implements AgentAdapter {
     // Filter non-content events
     if (json.type === 'rate_limit_event' || json.type === 'system') return [];
 
-    // Assistant message — extract text content
+    // Assistant message — extract text content and thinking
     if (json.type === 'assistant') {
+      const events: AdapterEvent[] = [];
+      const thought = extractContentThinking(json as ContentBlockEvent);
+      if (thought) events.push(thinkingEvent(thought));
       const extracted = extractContentText(json as ContentBlockEvent);
-      return extracted ? [textDelta(extracted)] : [];
+      if (extracted) events.push(textDelta(extracted));
+      return events;
     }
 
     if (json.type === 'result') {

@@ -167,9 +167,9 @@ describe('ClaudeAdapter', () => {
 describe('CursorAdapter', () => {
   const adapter = new CursorAdapter();
 
-  it('parses thinking event as text-delta', () => {
+  it('parses thinking event as thinking', () => {
     const events = adapter.parseLine(JSON.stringify({ type: 'thinking', text: 'reasoning...' }));
-    expect(events).toEqual([{ type: 'text-delta', text: 'reasoning...' }]);
+    expect(events).toEqual([{ type: 'thinking', text: 'reasoning...' }]);
   });
 
   it('parses assistant content blocks', () => {

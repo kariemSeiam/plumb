@@ -49,7 +49,10 @@ export class WolfyAdapter implements AgentAdapter {
       if (ame.type === 'text_delta' && typeof ame.delta === 'string' && ame.delta) {
         return [{ type: 'text-delta', text: ame.delta }];
       }
-      if (ame.type === 'thinking_delta' || ame.type === 'thinking_start' || ame.type === 'thinking_end') return [];
+      if (ame.type === 'thinking_delta' && typeof ame.delta === 'string' && ame.delta) {
+        return [{ type: 'thinking', text: ame.delta }];
+      }
+      if (ame.type === 'thinking_start' || ame.type === 'thinking_end') return [];
       if (ame.type === 'text_start' || ame.type === 'text_end') return [];
       return [];
     }

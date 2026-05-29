@@ -4,7 +4,7 @@
 
 import type { AgentAdapter, AgentTask, AdapterEvent, DetectionResult, PlumbConfig } from '../types.ts';
 import { CursorSessionStore } from '../core/session-store.ts';
-import { tryParseLine, extractContentText, isConsolidatedAssistant, textDelta, statusEvent, errorEvent } from './stream-json.ts';
+import { tryParseLine, extractContentText, extractContentThinking, isConsolidatedAssistant, textDelta, thinkingEvent, statusEvent, errorEvent } from './stream-json.ts';
 import type { ContentBlockEvent } from './stream-json.ts';
 import { detectBinary } from './detect.ts';
 
@@ -157,15 +157,21 @@ export class CursorAdapter implements AgentAdapter {
     if (json.type === 'user') return [];
 
     if (json.type === 'thinking' && typeof (json as Record<string, unknown>).text === 'string') {
-      return [textDelta((json as Record<string, unknown>).text as string)];
+      return [thinkingEvent((json as Record<string, unknown>).text as string)];
     }
 
     if (json.type === 'assistant') {
       const contentEvent = json as ContentBlockEvent;
       if (isConsolidatedAssistant(contentEvent, this.streamPartial)) return [];
+      const events: AdapterEvent[] = [];
+      const thought = extractContentThinking(contentEvent);
+      if (thought) events.push(thinkingEvent(thought));
       const extracted = extractContentText(contentEvent);
-      if (extracted) this.taskAssistantForRecap += extracted;
-      return extracted ? [textDelta(extracted)] : [];
+      if (extracted) {
+        this.taskAssistantForRecap += extracted;
+        events.push(textDelta(extracted));
+      }
+      return events;
     }
 
     if (json.type === 'tool_call') {

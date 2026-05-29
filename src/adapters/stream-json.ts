@@ -50,7 +50,7 @@ export function tryParseLine(line: string): ParsedLine {
 }
 
 /**
- * Extract text from a message.content array (Cursor/Venom format).
+ * Extract text from a message.content array (Cursor/Venom/Claude format).
  * Filters for { type: "text", text: string } blocks, joins with newline.
  */
 export function extractContentText(event: ContentBlockEvent): string | null {
@@ -61,6 +61,23 @@ export function extractContentText(event: ContentBlockEvent): string | null {
       c.type === 'text' && typeof c.text === 'string'
     )
     .map(c => c.text);
+  return texts.length > 0 ? texts.join('\n') : null;
+}
+
+/**
+ * Extract thinking from a message.content array.
+ * Filters for { type: "thinking", text: string } or { type: "thinking", thinking: string } blocks.
+ */
+export function extractContentThinking(event: ContentBlockEvent): string | null {
+  const content = event.message?.content;
+  if (!content || !Array.isArray(content)) return null;
+  const texts = content
+    .filter((c): c is { type: string; text?: string; thinking?: string } =>
+      (c.type === 'thinking' || c.type === 'thinking_delta') &&
+      (typeof (c as Record<string, unknown>).text === 'string' || typeof (c as Record<string, unknown>).thinking === 'string')
+    )
+    .map(c => c.text || c.thinking || '')
+    .filter(Boolean);
   return texts.length > 0 ? texts.join('\n') : null;
 }
 
@@ -76,6 +93,11 @@ export function isConsolidatedAssistant(event: ContentBlockEvent, streamPartial:
 /** Build a text-delta event. */
 export function textDelta(text: string): AdapterEvent {
   return { type: 'text-delta', text };
+}
+
+/** Build a thinking event. */
+export function thinkingEvent(text: string): AdapterEvent {
+  return { type: 'thinking', text };
 }
 
 /** Build a status event. */

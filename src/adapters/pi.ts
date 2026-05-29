@@ -53,7 +53,10 @@ export class PiAdapter implements AgentAdapter {
       if (ame.type === 'text_delta' && typeof ame.delta === 'string' && ame.delta) {
         return [{ type: 'text-delta', text: ame.delta }];
       }
-      if (ame.type && String(ame.type).startsWith('thinking_')) return [];
+      if (ame.type === 'thinking_delta' && typeof ame.delta === 'string' && ame.delta) {
+        return [{ type: 'thinking', text: ame.delta }];
+      }
+      if (ame.type && (String(ame.type).startsWith('thinking_') || ame.type === 'thinking_start' || ame.type === 'thinking_end')) return [];
       if (ame.type === 'text_start' || ame.type === 'text_end') return [];
       const text = event.text ?? event.delta ?? event.content ?? '';
       if (text) return [{ type: 'text-delta', text: text as string }];

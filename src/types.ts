@@ -52,6 +52,7 @@ export type AdapterEvent =
   | { type: 'text-delta'; text: string }
   | { type: 'tool-call'; tool: string; input?: Record<string, unknown> }
   | { type: 'tool-result'; tool: string; output: string; isError?: boolean }
+  | { type: 'thinking'; text: string }
   | { type: 'status'; state: 'working' | 'completed' | 'failed' }
   | { type: 'error'; message: string; code?: string };
 
@@ -97,6 +98,7 @@ export interface AgentAdapter {
 export type LedgerEvent =
   | { type: 'task_submitted'; taskId: string; cli: string; message: string; timestamp: string; ink?: TaskMetadata }
   | { type: 'task_running'; taskId: string; timestamp: string; ink?: TaskMetadata }
+  | { type: 'thinking'; taskId: string; text: string; timestamp: string; ink?: TaskMetadata }
   | { type: 'progress'; taskId: string; text: string; timestamp: string; ink?: TaskMetadata }
   | { type: 'log'; taskId: string; level: string; text: string; timestamp: string; ink?: TaskMetadata }
   | { type: 'task_completed'; taskId: string; timestamp: string; ink?: TaskMetadata }

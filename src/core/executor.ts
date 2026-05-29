@@ -203,6 +203,12 @@ export class PlumbExecutor implements AgentExecutor {
       : rawEvents;
 
     for (const ev of events) {
+      if (ev.type === 'thinking' && ev.text) {
+        // Thinking content recorded to ledger only — not streamed to A2A client.
+        // Reasoning: A2A 1.0 has no thinking channel, and mixing thinking into
+        // text-delta defeats the purpose of separating reasoning from output.
+        ledger.append({ type: 'thinking', taskId, text: ev.text, timestamp: new Date().toISOString() });
+      }
       if (ev.type === 'text-delta' && ev.text) {
         accumulated.text += ev.text;
         ledger.append({ type: 'progress', taskId, text: ev.text, timestamp: new Date().toISOString() });

@@ -2,7 +2,7 @@
 // Wraps `venom --output-format stream-json --permission-mode danger-full-access`.
 
 import type { AgentAdapter, AgentTask, AdapterEvent, DetectionResult, PlumbConfig } from '../types.ts';
-import { tryParseLine, extractContentText, isConsolidatedAssistant, textDelta, statusEvent, errorEvent } from './stream-json.ts';
+import { tryParseLine, extractContentText, extractContentThinking, isConsolidatedAssistant, textDelta, thinkingEvent, statusEvent, errorEvent } from './stream-json.ts';
 import type { ContentBlockEvent } from './stream-json.ts';
 import { detectBinary } from './detect.ts';
 
@@ -42,9 +42,14 @@ export class VenomAdapter implements AgentAdapter {
     if (json.type === 'system' || json.type === 'user') return [];
 
     if (json.type === 'assistant') {
-      const extracted = extractContentText(json as ContentBlockEvent);
-      if (isConsolidatedAssistant(json as ContentBlockEvent, this.streamPartial)) return [];
-      return extracted ? [textDelta(extracted)] : [];
+      const contentEvent = json as ContentBlockEvent;
+      if (isConsolidatedAssistant(contentEvent, this.streamPartial)) return [];
+      const events: AdapterEvent[] = [];
+      const thought = extractContentThinking(contentEvent);
+      if (thought) events.push(thinkingEvent(thought));
+      const extracted = extractContentText(contentEvent);
+      if (extracted) events.push(textDelta(extracted));
+      return events;
     }
 
     // Tool call

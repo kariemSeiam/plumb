@@ -1,5 +1,5 @@
 # PLUMB MANIFEST — Single Source of Truth
-# Last updated: 2026-05-13 — v0.∞.∞
+# Last updated: 2026-05-29 — v0.2.1
 
 identity:
   name: plumb
@@ -109,6 +109,7 @@ build_state:
     - docs_drift_scrub
     - config_yaml_parsing
     - config_tests
+    - thinking_content_pipeline
     - fleet_up_graceful_shutdown
   current_wave: >
     Wave 2: Config + Fleet Boot.
