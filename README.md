@@ -1,10 +1,11 @@
 # plumb
 
-**Plumb is not an agent.**
+*Quiet pipes for noisy agents.*
+
+Plumb wraps CLI coding agents as [A2A](https://google.github.io/A2A/) HTTP servers.
 It has no LLM, no memory, no orchestration.
 It spawns processes, reads stdout, writes JSONL, and exits.
 
-Plumb wraps CLI coding agents as [A2A](https://google.github.io/A2A/) HTTP servers.
 One command. One ledger. Eight adapters. Zero dashboards.
 
 ```bash
@@ -230,9 +231,9 @@ docs/
 
 ---
 
-**Plumb is the pipe, not the water.**
-The operator is the architect.
-Plumb hangs true.
-Everything else is the operator's job.
+*The plumb bob hangs true because gravity is not negotiable.*
+*Plumb hangs true because the adapter contract is not negotiable.*
+*The operator is the architect.*
+*Everything else is the operator's job.*
 
 MIT
