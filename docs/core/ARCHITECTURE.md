@@ -1,5 +1,12 @@
 # ARCHITECTURE — How It Works
 
+> **⚠️ STATUS: design intent, partially unimplemented.** This document describes the
+> target architecture. The following are **NOT in the code** as of 2026-06-15 (verified):
+> circuit breaker, concurrency gating / semaphore, version probing (`knownGood`/`knownBad`),
+> the multi-phase boot sequence, crash-resume on boot, and the `/healthz` + `/readyz`
+> endpoints (only `/health` ships). Anchor any factual claim to `src/`, `README.md`, and the
+> test files — not to this prose. See `THESIS.md` §6 and `CLAUDE.md`.
+
 ```
 ┌────────────────────────────────────────────────────────────┐
 │                       ORCHESTRATOR                          │

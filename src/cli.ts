@@ -24,6 +24,11 @@ function readPackageVersion(): string {
 
 import { log } from './core/log.ts';
 
+/** Loopback interfaces are safe to bind without auth — not reachable off-host. */
+function isLoopback(host: string): boolean {
+  return host === 'localhost' || host === '::1' || /^127\./.test(host);
+}
+
 const program = new Command()
   .name('plumb')
   .description('Quiet pipes for noisy agents. A2A bridge for any CLI coding agent.')
@@ -103,7 +108,7 @@ fleet
         const ctrl = new AbortController();
         const timer = setTimeout(() => ctrl.abort(), timeout);
 
-        const url = `http://localhost:${agent.port}/health`;
+        const url = `http://127.0.0.1:${agent.port}/health`;
         const res = await fetch(url, { signal: ctrl.signal });
         clearTimeout(timer);
 
@@ -187,11 +192,27 @@ fleet
           adapter,
         });
 
+        const host = agent.listen ?? '127.0.0.1';
+        // Secure-by-default: refuse a non-loopback fleet bind without an apiKey.
+        if (!isLoopback(host) && !agent.apiKey) {
+          log('error', 'fleet_agent_skipped', {
+            id: agent.id,
+            host,
+            reason: 'Non-loopback bind without apiKey — would expose the agent unauthenticated.',
+            fix: 'Set apiKey for this agent in plumb.yaml, or bind a loopback interface.',
+          });
+          continue;
+        }
+
         const app = express();
         setupApp(app);
 
-        const server = app.listen(agent.port, () => {
-          log('info', 'fleet_agent_up', { id: agent.id, port: agent.port });
+        const server = app.listen(agent.port, host, () => {
+          log('info', 'fleet_agent_up', { id: agent.id, port: agent.port, host, exposed: !isLoopback(host) });
+        });
+
+        server.on('error', (err: NodeJS.ErrnoException) => {
+          log('error', 'fleet_agent_error', { id: agent.id, port: agent.port, code: err.code ?? 'unknown', error: err.message });
         });
 
         fleetServers.push({ id: agent.id, port: agent.port, executor, server });
@@ -206,9 +227,9 @@ fleet
             mode: adapter.mode,
             tier: adapter.tier,
             uptime: Date.now(),
-            healthUrl: `http://localhost:${agent.port}/health`,
-            agentCardUrl: `http://localhost:${agent.port}/.well-known/agent-card.json`,
-            jsonrpcUrl: `http://localhost:${agent.port}/a2a/jsonrpc`,
+            healthUrl: `http://127.0.0.1:${agent.port}/health`,
+            agentCardUrl: `http://127.0.0.1:${agent.port}/.well-known/agent-card.json`,
+            jsonrpcUrl: `http://127.0.0.1:${agent.port}/a2a/jsonrpc`,
           });
         } catch { /* non-fatal */ }
       }
@@ -249,16 +270,34 @@ program
   .option('--timeout <seconds>', 'Task timeout in seconds', '300')
   .option('--key <apiKey>', 'Bearer token for /a2a endpoints')
   .option('--deny', 'Deny all requests when no --key is set (secure-by-default)')
+  .option('--listen <host>', 'Network interface to bind', '127.0.0.1')
+  .option('--insecure', 'Permit a non-loopback bind without --key/--deny (use ONLY behind a trusted boundary)')
   .action((cli: string, opts: {
     port: string;
     name?: string;
     workdir?: string;
     timeout: string;
     key?: string;
+    deny?: boolean;
+    listen: string;
+    insecure?: boolean;
   }) => {
     const port = parseInt(opts.port, 10);
     if (isNaN(port) || port < 1 || port > 65535) {
       log('error', 'invalid_port', { port: opts.port });
+      process.exit(1);
+    }
+
+    // Secure-by-default: a non-loopback bind without auth exposes the wrapped
+    // agent to the network unauthenticated. Refuse unless explicitly overridden.
+    const host = opts.listen;
+    const hasAuth = !!opts.key || opts.deny === true;
+    if (!isLoopback(host) && !hasAuth && opts.insecure !== true) {
+      log('error', 'refusing_open_bind', {
+        host,
+        reason: 'Non-loopback bind without --key or --deny would expose the wrapped agent unauthenticated.',
+        fix: 'Add --key <token> (or --deny), or pass --insecure to override behind a trusted boundary.',
+      });
       process.exit(1);
     }
 
@@ -286,18 +325,30 @@ program
     const app = express();
     setupApp(app);
 
-    const server = app.listen(port, () => {
+    const server = app.listen(port, host, () => {
       log('info', 'plumb_listening', {
         port,
+        host,
+        exposed: !isLoopback(host),
+        auth: !!opts.key ? 'key' : (opts.deny === true ? 'deny' : 'none'),
         adapter: adapter.id,
         mode: adapter.mode,
         endpoints: {
-          agentCard: `http://localhost:${port}/.well-known/agent-card.json`,
-          jsonrpc: `http://localhost:${port}/a2a/jsonrpc`,
-          rest: `http://localhost:${port}/a2a/rest`,
-          health: `http://localhost:${port}/health`,
+          agentCard: `http://127.0.0.1:${port}/.well-known/agent-card.json`,
+          jsonrpc: `http://127.0.0.1:${port}/a2a/jsonrpc`,
+          rest: `http://127.0.0.1:${port}/a2a/rest`,
+          health: `http://127.0.0.1:${port}/health`,
         },
       });
+    });
+
+    server.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        log('error', 'port_in_use', { port, host, hint: 'Choose another --port or stop the process using it.' });
+      } else {
+        log('error', 'server_error', { error: err.message });
+      }
+      process.exit(1);
     });
 
     const shutdown = async () => {
@@ -461,7 +512,7 @@ program
     if (opts?.url) {
       targetUrl = opts.url.replace(/\/+$/, '') + '/a2a/jsonrpc';
     } else if (opts?.port) {
-      targetUrl = `http://localhost:${opts.port}/a2a/jsonrpc`;
+      targetUrl = `http://127.0.0.1:${opts.port}/a2a/jsonrpc`;
     } else {
       const reg = findRegistration(agent);
       if (!reg) {

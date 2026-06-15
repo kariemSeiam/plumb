@@ -41,7 +41,7 @@ export function createPlumbServer(config: PlumbConfig & { adapter: AgentAdapter 
     description: `${adapter.displayName} via plumb — A2A bridge`,
     protocolVersion: '0.3.0',
     version: getPackageVersion(),
-    url: process.env.PLUMB_PUBLIC_URL ?? `http://localhost:${port}`,
+    url: process.env.PLUMB_PUBLIC_URL ?? `http://127.0.0.1:${port}`,
     capabilities: { streaming: true },
     skills: adapter.skills.map(s => ({ ...s, description: s.name })),
     defaultInputModes: ['text/plain'],
@@ -78,9 +78,9 @@ export function createPlumbServer(config: PlumbConfig & { adapter: AgentAdapter 
       mode: adapter.mode,
       tier: adapter.tier,
       uptime: Date.now(),
-      healthUrl: `http://localhost:${port}/health`,
-      agentCardUrl: `http://localhost:${port}/.well-known/agent-card.json`,
-      jsonrpcUrl: `http://localhost:${port}/a2a/jsonrpc`,
+      healthUrl: `http://127.0.0.1:${port}/health`,
+      agentCardUrl: `http://127.0.0.1:${port}/.well-known/agent-card.json`,
+      jsonrpcUrl: `http://127.0.0.1:${port}/a2a/jsonrpc`,
     });
   } catch { /* non-fatal */ }
 

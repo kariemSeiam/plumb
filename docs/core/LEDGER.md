@@ -1,5 +1,12 @@
 # LEDGER — The Gravity-True Record
 
+> **⚠️ STATUS: aspirational schema.** The event fields shown below (`agent`, `pid`,
+> `duration`, `output`, structured `errorCode`/`partialOutput`, and the `task_interrupted`
+> event), the crash-resume protocol, and 90-day retention are **design intent, not shipped.**
+> The actual `LedgerEvent` (see `src/types.ts`) is leaner: no `agent`/`duration`/`output`,
+> and `tool-call`/`tool-result` are flattened into `progress` text. Making this document
+> true — rich structured events + crash-resume — is Phase 1 of `THESIS.md` (the moat).
+
 ```
 Every task lifecycle written to disk.
 Append-only. Crash-survivable. Queryable.

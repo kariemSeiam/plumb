@@ -6,7 +6,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, rmSync, readFileSync } from 'node:fs';
 
 const PORT = 9110;
-const BASE_URL = `http://localhost:${PORT}`;
+const BASE_URL = `http://127.0.0.1:${PORT}`;
 const LEDGER_DIR = '.plumb/ledger';
 let server: ChildProcess;
 

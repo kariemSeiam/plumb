@@ -6,7 +6,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, rmSync, readFileSync } from 'node:fs';
 
 const PORT = 9100;
-const BASE_URL = `http://localhost:${PORT}`;
+const BASE_URL = `http://127.0.0.1:${PORT}`;
 let server: ChildProcess;
 
 function waitForServer(url: string, timeout = 10000): Promise<void> {

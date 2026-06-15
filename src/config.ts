@@ -30,6 +30,8 @@ export interface FleetAgent {
   labels?: string[];
   /** Enable session store (Cursor only). */
   sessionStore?: boolean;
+  /** Network interface to bind. Defaults to 127.0.0.1 (loopback). Non-loopback requires apiKey. */
+  listen?: string;
 }
 
 export interface FleetConfig {
@@ -113,6 +115,7 @@ export function loadFleetConfig(path?: string): FleetConfig | null {
       env: a.env as Record<string, string> | undefined,
       labels: Array.isArray(a.labels) ? (a.labels as string[]) : undefined,
       sessionStore: a.sessionStore as boolean | undefined,
+      listen: a.listen as string | undefined,
     };
   });
 

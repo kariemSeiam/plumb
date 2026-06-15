@@ -65,6 +65,28 @@ systemctl stop plumb-pi plumb-claude plumb-cursor plumb-opencode plumb-venom
 systemctl start fang-pi fang-claude fang-cursor fang-opencode fang-venom
 ```
 
+## Security cutover (Phase 0 — required)
+
+Plumb now binds **`127.0.0.1` by default** (was: all interfaces). On redeploy with current code, agents are reachable only from the same host. This is the correct posture for a co-located orchestrator and requires no unit changes.
+
+- **Same-host orchestrator (default):** nothing to do. Verify with `curl http://localhost:<port>/health`.
+- **Cross-host caller:** add `--listen 0.0.0.0` to the unit's `ExecStart` **and** `--key ${PLUMB_KEY}` (set `PLUMB_KEY` in `/etc/plumb/agent.env`), and send `Authorization: Bearer $PLUMB_KEY` from the caller. Binding non-loopback without `--key`/`--deny` now refuses to start (override only with `--insecure`).
+
+**Recommended unit hardening** (apply per-host; not pre-applied because they depend on FS layout — `/root/.bun`, `/home/plumb`):
+
+```ini
+[Service]
+NoNewPrivileges=true
+PrivateTmp=true
+# Running as root today. To drop privileges, first ensure the plumb user can
+# reach the bun binary and the ledger dir, then:
+#   User=plumb
+#   ProtectSystem=strict
+#   ReadWritePaths=/home/plumb/.plumb
+```
+
+> ⚠️ **Port drift — reconcile before cutover.** The committed unit files bind Claude=3002, OpenCode=3004, VENOM=3005, but `plumb.yaml`, the table below, and ROADMAP say Claude=3000, OpenCode=3002, VENOM=3004. Confirm the live mapping and align the unit `ExecStart --port` values before deploying, or agents will land on the wrong ports.
+
 ## Ports
 
 | Port | Agent    | Mode       | Tier | Service file |

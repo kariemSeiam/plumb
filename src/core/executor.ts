@@ -234,7 +234,9 @@ export class PlumbExecutor implements AgentExecutor {
         settled.value = true;
         clearTimeout(timer);
         cleanup();
-        ledger.append({ type: 'task_completed', taskId, timestamp: new Date().toISOString() });
+        const ink = this.inkByTaskId.get(taskId);
+        this.inkByTaskId.delete(taskId);
+        ledger.append({ type: 'task_completed', taskId, timestamp: new Date().toISOString(), ink });
         bus.publish({ kind: 'message', messageId: randomUUID(), role: 'agent', parts: [{ kind: 'text', text: accumulated.text || 'Done' }] });
         bus.finished();
         resolve();
@@ -243,7 +245,9 @@ export class PlumbExecutor implements AgentExecutor {
         settled.value = true;
         clearTimeout(timer);
         cleanup();
-        ledger.append({ type: 'task_failed', taskId, error: ev.message, timestamp: new Date().toISOString() });
+        const ink = this.inkByTaskId.get(taskId);
+        this.inkByTaskId.delete(taskId);
+        ledger.append({ type: 'task_failed', taskId, error: ev.message, timestamp: new Date().toISOString(), ink });
         this.fail(bus, taskId, contextId, ev.message);
         bus.finished();
         resolve();
