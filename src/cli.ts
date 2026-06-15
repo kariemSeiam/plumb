@@ -11,6 +11,12 @@ import { createPlumbServer } from './core/server.ts';
 import { detectAdapter, detectAll } from './adapters/registry.ts';
 import { loadFleetConfig, validateFleetConfig, agentToPlumbConfig, resolveConfigPath } from './config.ts';
 import { readAllRegistrations, findRegistration, writeRegistration, unregister } from './core/registry.ts';
+import {
+  resolveLedgerDir, todayStamp, ledgerFileForDate, listLedgerFiles,
+  readEvents, parseLedgerLines, readFrom, aggregateStats, taskTimeline,
+  type LedgerStats,
+} from './core/ledger-read.ts';
+import type { LedgerEvent } from './types.ts';
 
 function readPackageVersion(): string {
   try {
@@ -27,6 +33,65 @@ import { log } from './core/log.ts';
 /** Loopback interfaces are safe to bind without auth — not reachable off-host. */
 function isLoopback(host: string): boolean {
   return host === 'localhost' || host === '::1' || /^127\./.test(host);
+}
+
+// ─── Ledger read rendering (stats / tail / replay) ───────────────────────
+
+function printTable(header: string[], rows: string[][]): void {
+  const widths = header.map((h, i) => Math.max(h.length, ...rows.map(r => (r[i] ?? '').length)));
+  const line = (cells: string[]) => cells.map((c, i) => (c ?? '').padEnd(widths[i]!)).join('  ');
+  console.log(line(header));
+  console.log('-'.repeat(widths.reduce((s, w) => s + w + 2, -2)));
+  for (const r of rows) console.log(line(r));
+}
+
+function topTools(tools: Record<string, number>, n: number): string {
+  const entries = Object.entries(tools).sort((a, b) => b[1] - a[1]).slice(0, n);
+  return entries.length ? entries.map(([k, v]) => `${k}:${v}`).join(' ') : '-';
+}
+
+function renderStats(stats: LedgerStats): void {
+  if (stats.agents.length === 0) { console.log('No agent activity in ledger.'); return; }
+  const header = ['AGENT', 'TASKS', 'OK', 'FAIL', 'CANC', 'FAIL%', 'P50ms', 'P95ms', 'OUT(b)', 'TOP TOOLS'];
+  const rows = stats.agents.map(a => [
+    a.agent,
+    String(a.submitted),
+    String(a.completed),
+    String(a.failed),
+    String(a.cancelled),
+    (a.failureRate * 100).toFixed(0) + '%',
+    a.durationP50Ms == null ? '-' : String(a.durationP50Ms),
+    a.durationP95Ms == null ? '-' : String(a.durationP95Ms),
+    String(a.outputBytes),
+    topTools(a.tools, 3),
+  ]);
+  printTable(header, rows);
+  console.log(`\n${stats.totalEvents} ledger events.`);
+}
+
+function fmtTime(ts?: string): string {
+  return typeof ts === 'string' && ts.length >= 19 ? ts.slice(11, 19) : '--:--:--';
+}
+
+/** One ledger event as a compact human line (used by tail and replay). */
+function renderEvent(e: LedgerEvent): string {
+  const t = fmtTime((e as { timestamp?: string }).timestamp);
+  const id = (e as { taskId?: string }).taskId ?? '';
+  const short = (id.length > 8 ? id.slice(0, 8) : id).padEnd(8);
+  let detail = '';
+  switch (e.type) {
+    case 'task_submitted': detail = `${e.agent} «${e.message.replace(/\n/g, ' ').slice(0, 60)}»`; break;
+    case 'task_running': detail = e.agent; break;
+    case 'tool_call': detail = `${e.tool}${e.input ? ' ' + JSON.stringify(e.input).slice(0, 80) : ''}`; break;
+    case 'tool_result': detail = `${e.tool} ${e.ok ? 'ok' : 'ERR'} ${e.outputBytes}b`; break;
+    case 'progress': detail = e.text.replace(/\n/g, ' ').slice(0, 80); break;
+    case 'thinking': detail = e.text.replace(/\n/g, ' ').slice(0, 80); break;
+    case 'log': detail = `[${e.level}] ${e.text.replace(/\n/g, ' ').slice(0, 80)}`; break;
+    case 'task_completed': detail = `${e.agent} ${e.durationMs ?? '?'}ms ${e.outputBytes ?? '?'}b`; break;
+    case 'task_failed': detail = `${e.agent} ${e.durationMs ?? '?'}ms — ${e.error.slice(0, 60)}`; break;
+    case 'task_cancelled': detail = e.agent; break;
+  }
+  return `${t}  ${short}  ${e.type.padEnd(15)}  ${detail}`;
 }
 
 const program = new Command()
@@ -647,6 +712,97 @@ program
       }
       process.exit(1);
     }
+  });
+
+// ─── stats command ───────────────────────────────────────────────────
+
+program
+  .command('stats')
+  .description('Aggregate ledger stats per agent (tasks, duration p50/p95, tools, failure rate)')
+  .option('--dir <path>', 'Ledger directory')
+  .option('--date <YYYY-MM-DD>', 'Single day (default: today)')
+  .option('--all', 'Aggregate across all ledger files')
+  .option('--agent <id>', 'Filter to one agent')
+  .option('--json', 'Output JSON')
+  .action((opts: { dir?: string; date?: string; all?: boolean; agent?: string; json?: boolean }) => {
+    const dir = resolveLedgerDir(opts.dir);
+    const files = opts.all ? listLedgerFiles(dir) : [ledgerFileForDate(dir, opts.date ?? todayStamp())];
+    const existing = files.filter(existsSync);
+    if (existing.length === 0) {
+      log('warn', 'no_ledger', { dir, hint: 'No ledger files found — run a task first' });
+      return;
+    }
+    const stats = aggregateStats(readEvents(existing), opts.agent);
+    if (opts.json) { console.log(JSON.stringify(stats, null, 2)); return; }
+    renderStats(stats);
+  });
+
+// ─── tail command ─────────────────────────────────────────────────────
+
+program
+  .command('tail')
+  .description('Show recent ledger events; --follow to stream live')
+  .option('--dir <path>', 'Ledger directory')
+  .option('--date <YYYY-MM-DD>', 'Day to read (default: today)')
+  .option('-n, --lines <count>', 'Show last N events', '20')
+  .option('-f, --follow', 'Follow appended events (Ctrl-C to stop)')
+  .option('--task <id>', 'Filter to one task id')
+  .option('--json', 'Emit raw JSON lines')
+  .action((opts: { dir?: string; date?: string; lines: string; follow?: boolean; task?: string; json?: boolean }) => {
+    const dir = resolveLedgerDir(opts.dir);
+    const file = ledgerFileForDate(dir, opts.date ?? todayStamp());
+    const n = Math.max(0, parseInt(opts.lines, 10) || 20);
+    const match = (e: LedgerEvent) => !opts.task || (e as { taskId?: string }).taskId === opts.task;
+    const emit = (e: LedgerEvent) => console.log(opts.json ? JSON.stringify(e) : renderEvent(e));
+
+    let offset = 0;
+    if (existsSync(file)) {
+      const content = readFileSync(file, 'utf8');
+      offset = Buffer.byteLength(content);
+      parseLedgerLines(content).filter(match).slice(-n).forEach(emit);
+    } else if (!opts.follow) {
+      log('warn', 'no_ledger', { file, hint: 'No ledger for that date' });
+      return;
+    }
+    if (!opts.follow) return;
+
+    let carry = '';
+    const timer = setInterval(() => {
+      const { text, newOffset } = readFrom(file, offset);
+      offset = newOffset;
+      if (!text) return;
+      carry += text;
+      const idx = carry.lastIndexOf('\n');
+      if (idx < 0) return;
+      const complete = carry.slice(0, idx);
+      carry = carry.slice(idx + 1);
+      parseLedgerLines(complete).filter(match).forEach(emit);
+    }, 500);
+    const stop = () => { clearInterval(timer); process.exit(0); };
+    process.on('SIGINT', stop);
+    process.on('SIGTERM', stop);
+  });
+
+// ─── replay command ───────────────────────────────────────────────────
+
+program
+  .command('replay <taskId>')
+  .description("Reconstruct one task's lifecycle from the ledger")
+  .option('--dir <path>', 'Ledger directory')
+  .option('--date <YYYY-MM-DD>', 'Day to read (default: today)')
+  .option('--all', 'Search all ledger files')
+  .option('--json', 'Output JSON timeline')
+  .action((taskId: string, opts: { dir?: string; date?: string; all?: boolean; json?: boolean }) => {
+    const dir = resolveLedgerDir(opts.dir);
+    const files = opts.all ? listLedgerFiles(dir) : [ledgerFileForDate(dir, opts.date ?? todayStamp())];
+    const timeline = taskTimeline(readEvents(files.filter(existsSync)), taskId);
+    if (timeline.length === 0) {
+      log('error', 'task_not_found', { taskId, hint: 'Try --all or --date <YYYY-MM-DD>' });
+      process.exit(1);
+    }
+    if (opts.json) { console.log(JSON.stringify(timeline, null, 2)); return; }
+    console.log(`Task ${taskId} — ${timeline.length} events`);
+    for (const e of timeline) console.log('  ' + renderEvent(e));
   });
 
 export { program };
