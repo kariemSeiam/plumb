@@ -95,15 +95,19 @@ export interface AgentAdapter {
   detect(): Promise<DetectionResult | null>;
 }
 
+// Every event carries `agent` (the adapter id) so merged multi-agent ledgers can be
+// sliced by agent. High-volume events (progress, thinking, log) omit it and join via taskId.
 export type LedgerEvent =
-  | { type: 'task_submitted'; taskId: string; cli: string; message: string; timestamp: string; ink?: TaskMetadata }
-  | { type: 'task_running'; taskId: string; timestamp: string; ink?: TaskMetadata }
+  | { type: 'task_submitted'; taskId: string; agent: string; cli: string; message: string; timestamp: string; ink?: TaskMetadata }
+  | { type: 'task_running'; taskId: string; agent: string; timestamp: string; ink?: TaskMetadata }
   | { type: 'thinking'; taskId: string; text: string; timestamp: string; ink?: TaskMetadata }
   | { type: 'progress'; taskId: string; text: string; timestamp: string; ink?: TaskMetadata }
+  | { type: 'tool_call'; taskId: string; agent: string; tool: string; input?: Record<string, unknown>; timestamp: string; ink?: TaskMetadata }
+  | { type: 'tool_result'; taskId: string; agent: string; tool: string; ok: boolean; outputBytes: number; timestamp: string; ink?: TaskMetadata }
   | { type: 'log'; taskId: string; level: string; text: string; timestamp: string; ink?: TaskMetadata }
-  | { type: 'task_completed'; taskId: string; timestamp: string; ink?: TaskMetadata }
-  | { type: 'task_failed'; taskId: string; error: string; timestamp: string; ink?: TaskMetadata }
-  | { type: 'task_cancelled'; taskId: string; timestamp: string; ink?: TaskMetadata };
+  | { type: 'task_completed'; taskId: string; agent: string; durationMs?: number; outputBytes?: number; timestamp: string; ink?: TaskMetadata }
+  | { type: 'task_failed'; taskId: string; agent: string; error: string; durationMs?: number; timestamp: string; ink?: TaskMetadata }
+  | { type: 'task_cancelled'; taskId: string; agent: string; timestamp: string; ink?: TaskMetadata };
 
 // ─── Persistent RPC Types ────────────────────────────────────────────────────
 // Correlated request/response over stdin/stdout for persistent agents (e.g. Pi).

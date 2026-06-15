@@ -167,6 +167,7 @@ export class PlumbExecutor implements AgentExecutor {
     this.ledger.append({
       type: 'task_submitted',
       taskId,
+      agent: this.adapter.id,
       cli: this.config.cli,
       message: text,
       timestamp: new Date().toISOString(),
@@ -194,6 +195,7 @@ export class PlumbExecutor implements AgentExecutor {
     ledger: Ledger,
     bus: ExecutionEventBus,
     timer: ReturnType<typeof setTimeout>,
+    startedAt: number,
     resolve: () => void,
     cleanup: () => void,
   ): void {
@@ -219,15 +221,17 @@ export class PlumbExecutor implements AgentExecutor {
         });
       }
       if (ev.type === 'tool-call' && ev.tool) {
+        // Stream the human-readable label to A2A, but record the tool call STRUCTURED
+        // in the ledger (the record's core signal — not flattened to prose).
         const label = `[${ev.tool}]${ev.input ? ' ' + JSON.stringify(ev.input) : ''}\n`;
         accumulated.text += label;
-        ledger.append({ type: 'progress', taskId, text: label, timestamp: new Date().toISOString() });
+        ledger.append({ type: 'tool_call', taskId, agent: this.adapter.id, tool: ev.tool, input: ev.input, timestamp: new Date().toISOString() });
         bus.publish({ kind: 'artifact-update', taskId, contextId, artifact: { artifactId: 'stdout', name: 'output', parts: [{ kind: 'text', text: label }] }, append: true, lastChunk: false });
       }
       if (ev.type === 'tool-result' && ev.output) {
         const label = `→ ${ev.isError ? '✗' : '✓'} ${ev.output}\n`;
         accumulated.text += label;
-        ledger.append({ type: 'progress', taskId, text: label, timestamp: new Date().toISOString() });
+        ledger.append({ type: 'tool_result', taskId, agent: this.adapter.id, tool: ev.tool, ok: !ev.isError, outputBytes: Buffer.byteLength(ev.output), timestamp: new Date().toISOString() });
         bus.publish({ kind: 'artifact-update', taskId, contextId, artifact: { artifactId: 'stdout', name: 'output', parts: [{ kind: 'text', text: label }] }, append: true, lastChunk: false });
       }
       if (ev.type === 'status' && ev.state === 'completed') {
@@ -236,7 +240,7 @@ export class PlumbExecutor implements AgentExecutor {
         cleanup();
         const ink = this.inkByTaskId.get(taskId);
         this.inkByTaskId.delete(taskId);
-        ledger.append({ type: 'task_completed', taskId, timestamp: new Date().toISOString(), ink });
+        ledger.append({ type: 'task_completed', taskId, agent: this.adapter.id, durationMs: Date.now() - startedAt, outputBytes: Buffer.byteLength(accumulated.text), timestamp: new Date().toISOString(), ink });
         bus.publish({ kind: 'message', messageId: randomUUID(), role: 'agent', parts: [{ kind: 'text', text: accumulated.text || 'Done' }] });
         bus.finished();
         resolve();
@@ -247,7 +251,7 @@ export class PlumbExecutor implements AgentExecutor {
         cleanup();
         const ink = this.inkByTaskId.get(taskId);
         this.inkByTaskId.delete(taskId);
-        ledger.append({ type: 'task_failed', taskId, error: ev.message, timestamp: new Date().toISOString(), ink });
+        ledger.append({ type: 'task_failed', taskId, agent: this.adapter.id, error: ev.message, durationMs: Date.now() - startedAt, timestamp: new Date().toISOString(), ink });
         this.fail(bus, taskId, contextId, ev.message);
         bus.finished();
         resolve();
@@ -273,7 +277,8 @@ export class PlumbExecutor implements AgentExecutor {
     });
 
     const ink = this.inkByTaskId.get(taskId);
-    ledger.append({ type: 'task_running', taskId, timestamp: new Date().toISOString(), ink });
+    const startedAt = Date.now();
+    ledger.append({ type: 'task_running', taskId, agent: adapter.id, timestamp: new Date().toISOString(), ink });
 
     const [cmd, ...cliArgs] = this.splitCli(config.cli);
     const extraArgs = adapter.buildArgs(task, config);
@@ -286,7 +291,7 @@ export class PlumbExecutor implements AgentExecutor {
         settled.value = true;
         this.pm.kill(taskId);
         this.inkByTaskId.delete(taskId);
-        ledger.append({ type: 'task_failed', taskId, error: `timed out after ${timeout}s`, timestamp: new Date().toISOString(), ink });
+        ledger.append({ type: 'task_failed', taskId, agent: adapter.id, error: `timed out after ${timeout}s`, durationMs: Date.now() - startedAt, timestamp: new Date().toISOString(), ink });
         this.fail(bus, taskId, contextId, `Task timed out after ${timeout}s`);
         bus.finished();
         resolve();
@@ -299,7 +304,7 @@ export class PlumbExecutor implements AgentExecutor {
           onLine: (line) => {
             if (settled.value) return;
             const events = adapter.parseLine(line);
-            this.handleEvents(events, accumulated, settled, taskId, contextId, ledger, bus, timer, resolve, () => {
+            this.handleEvents(events, accumulated, settled, taskId, contextId, ledger, bus, timer, startedAt, resolve, () => {
               this.contextByTaskId.delete(taskId);
             });
           },
@@ -317,11 +322,11 @@ export class PlumbExecutor implements AgentExecutor {
             this.contextByTaskId.delete(taskId);
             this.inkByTaskId.delete(taskId);
             if (code === 0) {
-              ledger.append({ type: 'task_completed', taskId, timestamp: new Date().toISOString(), ink });
+              ledger.append({ type: 'task_completed', taskId, agent: adapter.id, durationMs: Date.now() - startedAt, outputBytes: Buffer.byteLength(accumulated.text), timestamp: new Date().toISOString(), ink });
               bus.publish({ kind: 'message', messageId: randomUUID(), role: 'agent', parts: [{ kind: 'text', text: accumulated.text || '(no output)' }] });
             } else {
               const errMsg = `Process exited with code ${code}`;
-              ledger.append({ type: 'task_failed', taskId, error: errMsg, timestamp: new Date().toISOString(), ink });
+              ledger.append({ type: 'task_failed', taskId, agent: adapter.id, error: errMsg, durationMs: Date.now() - startedAt, timestamp: new Date().toISOString(), ink });
               bus.publish({ kind: 'message', messageId: randomUUID(), role: 'agent', parts: [{ kind: 'text', text: errMsg }] });
             }
             bus.finished();
@@ -380,7 +385,8 @@ export class PlumbExecutor implements AgentExecutor {
     });
 
     const ink = this.inkByTaskId.get(taskId);
-    ledger.append({ type: 'task_running', taskId, timestamp: new Date().toISOString(), ink });
+    const startedAt = Date.now();
+    ledger.append({ type: 'task_running', taskId, agent: adapter.id, timestamp: new Date().toISOString(), ink });
 
     const accumulated = { text: '' };
     const settled = { value: false };
@@ -391,7 +397,7 @@ export class PlumbExecutor implements AgentExecutor {
         settled.value = true;
         this.persistent?.removeLineHandler(taskId);
         this.inkByTaskId.delete(taskId);
-        ledger.append({ type: 'task_failed', taskId, error: `timed out after ${timeout}s`, timestamp: new Date().toISOString(), ink });
+        ledger.append({ type: 'task_failed', taskId, agent: adapter.id, error: `timed out after ${timeout}s`, durationMs: Date.now() - startedAt, timestamp: new Date().toISOString(), ink });
         this.fail(bus, taskId, contextId, `Task timed out after ${timeout}s`);
         bus.finished();
         resolve();
@@ -400,7 +406,7 @@ export class PlumbExecutor implements AgentExecutor {
       this.persistent!.setLineHandler(taskId, (line) => {
         if (settled.value) return;
         const events = adapter.parseLine(line);
-        this.handleEvents(events, accumulated, settled, taskId, contextId, ledger, bus, timer, resolve, () => {
+        this.handleEvents(events, accumulated, settled, taskId, contextId, ledger, bus, timer, startedAt, resolve, () => {
           this.contextByTaskId.delete(taskId);
           this.persistent?.removeLineHandler(taskId);
         });
@@ -429,7 +435,7 @@ export class PlumbExecutor implements AgentExecutor {
     this.contextByTaskId.delete(taskId);
     const ink = this.inkByTaskId.get(taskId);
     this.inkByTaskId.delete(taskId);
-    this.ledger.append({ type: 'task_cancelled', taskId, timestamp: new Date().toISOString(), ink });
+    this.ledger.append({ type: 'task_cancelled', taskId, agent: this.adapter.id, timestamp: new Date().toISOString(), ink });
     bus.publish({
       kind: 'status-update', taskId, contextId, final: true,
       status: {
