@@ -25,7 +25,14 @@ export class ClaudeAdapter implements AgentAdapter {
   ];
 
   buildArgs(_task: AgentTask, _config: PlumbConfig): string[] {
-    return ['--print', '--output-format', 'stream-json', '--verbose'];
+    // Probe result (2026-06-15): headless `claude --print` ignores project
+    // settings.json permissions AND `--allowedTools` does not grant file tools
+    // here — but `--permission-mode acceptEdits` DOES (auto-accepts Edit/Write;
+    // Bash stays gated). Dangerous ops still blocked by the workdir's safety
+    // PreToolUse hook. Override via PLUMB_CLAUDE_PERMISSION_MODE (e.g.
+    // bypassPermissions) when a task needs Bash/more.
+    const mode = process.env.PLUMB_CLAUDE_PERMISSION_MODE || 'acceptEdits';
+    return ['--print', '--output-format', 'stream-json', '--verbose', '--permission-mode', mode];
   }
 
   formatInput(task: AgentTask): string {
