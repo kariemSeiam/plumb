@@ -13,6 +13,8 @@ Plumb wraps CLI coding agents into [A2A](https://google.github.io/A2A/) HTTP ser
 
 ---
 
+<br>
+
 ## How it works
 
 ```mermaid
@@ -27,7 +29,8 @@ flowchart LR
     G -->|every event| I[(JSONL ledger<br/>on disk)]
 ```
 
-Plumb does not generate text. It does not decide. It does not remember. It moves bytes from one process to another and records what happened.
+> [!NOTE]
+> Plumb does not generate text. It does not decide. It does not remember. It moves bytes from one process to another and records what happened.
 
 ---
 
@@ -228,7 +231,10 @@ docs/
 
 **Does Plumb pick the right agent for a task?** No, on purpose — see [What plumb refuses](#what-plumb-refuses). You assign labels; Plumb routes by label. If you want capability-based routing, build that one layer up, on top of Plumb, not inside it.
 
-**What happens if the client disconnects mid-task?** The SSE stream is best-effort; the ledger is the system of record. Reconnect and read `.plumb/ledger/<date>.jsonl` for the task's actual outcome — see [DESIGN.md](DESIGN.md) (ADR-004) for the exact failure mode this produces.
+**What happens if the client disconnects mid-task?**
+
+> [!IMPORTANT]
+> The SSE stream is best-effort; the ledger is the system of record. If the connection drops on the final event, the client never sees `task_completed` and must reconcile by reading `.plumb/ledger/<date>.jsonl` directly — see [DESIGN.md](DESIGN.md) (ADR-004) for the exact failure mode this produces.
 
 **Can I run this on Node instead of Bun?** Not today. The runtime choice is a deliberate bet ([DESIGN.md](DESIGN.md), ADR-002) for startup speed and built-in tooling — with the stated cost that some npm packages with native bindings won't resolve under Bun, and Node-only managed environments (some Lambda-style runtimes) can't run it unmodified.
 
@@ -236,9 +242,17 @@ docs/
 
 ---
 
+<br>
+
+<div align="center">
+
 *The plumb bob hangs true because gravity is not negotiable.*
 *Plumb hangs true because the adapter contract is not negotiable.*
 *The operator is the architect.*
 *Everything else is the operator's job.*
 
-MIT
+<br>
+
+**[kariemSeiam/plumb](https://github.com/kariemSeiam/plumb)** · MIT
+
+</div>
