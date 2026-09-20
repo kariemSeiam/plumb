@@ -17,20 +17,21 @@ Plumb wraps CLI coding agents into [A2A](https://google.github.io/A2A/) HTTP ser
 
 ## How it works
 
-```mermaid
-flowchart LR
-    A[A2A client] -->|POST /a2a/jsonrpc| B[PlumbServer]
-    B --> C[PlumbExecutor]
-    C -->|spawn or reuse| D[Process]
-    D -->|stdin| E[CLI agent<br/>claude / pi / cursor …]
-    E -->|stdout, line by line| F[AgentAdapter.parseLine]
-    F --> G{Event type}
-    G -->|text-delta, tool-call, status| H[SSE stream<br/>back to client]
-    G -->|every event| I[(JSONL ledger<br/>on disk)]
+```text
+you ──→ POST /a2a/jsonrpc ──→ plumb ──→ claude (subprocess) ──→ stdout
+                                           │
+                                           ↓
+                                      parseLine() → AdapterEvent[]
+                                           │
+                                     ┌─────┴──────┐
+                                     ↓            ↓
+                                  SSE stream   JSONL ledger
+                                  (to you)     (on disk)
 ```
 
-> [!NOTE]
-> Plumb does not generate text. It does not decide. It does not remember. It moves bytes from one process to another and records what happened.
+Rendered flowchart and the full pipeline (layer responsibilities, process modes, event flow): [ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+Plumb does not generate text. It does not decide. It does not remember. It moves bytes from one process to another and records what happened.
 
 ---
 
@@ -231,10 +232,7 @@ docs/
 
 **Does Plumb pick the right agent for a task?** No, on purpose — see [What plumb refuses](#what-plumb-refuses). You assign labels; Plumb routes by label. If you want capability-based routing, build that one layer up, on top of Plumb, not inside it.
 
-**What happens if the client disconnects mid-task?**
-
-> [!IMPORTANT]
-> The SSE stream is best-effort; the ledger is the system of record. If the connection drops on the final event, the client never sees `task_completed` and must reconcile by reading `.plumb/ledger/<date>.jsonl` directly — see [DESIGN.md](DESIGN.md) (ADR-004) for the exact failure mode this produces.
+**What happens if the client disconnects mid-task?** The SSE stream is best-effort; the ledger is the system of record. If the connection drops on the final event, the client never sees `task_completed` and must reconcile by reading `.plumb/ledger/<date>.jsonl` directly — see [DESIGN.md](DESIGN.md) (ADR-004) for the exact failure mode this produces.
 
 **Can I run this on Node instead of Bun?** Not today. The runtime choice is a deliberate bet ([DESIGN.md](DESIGN.md), ADR-002) for startup speed and built-in tooling — with the stated cost that some npm packages with native bindings won't resolve under Bun, and Node-only managed environments (some Lambda-style runtimes) can't run it unmodified.
 

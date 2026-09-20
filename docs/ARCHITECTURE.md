@@ -12,7 +12,21 @@ Plumb is not an agent. It has no LLM, no session memory, no orchestration. It sp
 
 ## The Pipeline
 
+```mermaid
+flowchart LR
+    A[A2A client] -->|POST /a2a/jsonrpc| B[PlumbServer]
+    B --> C[PlumbExecutor]
+    C -->|spawn or reuse| D[Process]
+    D -->|stdin| E[CLI agent<br/>claude / pi / cursor …]
+    E -->|stdout, line by line| F[AgentAdapter.parseLine]
+    F --> G{Event type}
+    G -->|text-delta, tool-call, status| H[SSE stream<br/>back to client]
+    G -->|every event| I[(JSONL ledger<br/>on disk)]
 ```
+
+ASCII equivalent, for anyone reading this file outside GitHub's renderer:
+
+```text
 [A2A client]
      │  POST /a2a/jsonrpc  message/send
      ▼
