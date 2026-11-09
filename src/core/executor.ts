@@ -174,7 +174,7 @@ export class PlumbExecutor implements AgentExecutor {
     });
 
     this.contextByTaskId.set(taskId, contextId);
-    const task: AgentTask = { id: taskId, message: text, context: { workdir: this.config.workdir, ink: this.hasInk(ink) ? ink : undefined } };
+    const task: AgentTask = { id: taskId, message: text, context: { contextId, workdir: this.config.workdir, ink: this.hasInk(ink) ? ink : undefined } };
 
     if (this.adapter.mode === 'persistent') {
       await this.executePersistent(ctx, bus, task);

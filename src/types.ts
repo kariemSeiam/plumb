@@ -40,6 +40,8 @@ export interface AgentTask {
   id: string;
   message: string;
   context?: {
+    /** A2A contextId of the conversation this task belongs to. */
+    contextId?: string;
     workdir?: string;
     labels?: string[];
     metadata?: Record<string, unknown>;

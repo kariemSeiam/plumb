@@ -7,6 +7,10 @@ import { CursorSessionStore } from '../core/session-store.ts';
 import { tryParseLine, extractContentText, extractContentThinking, isConsolidatedAssistant, textDelta, thinkingEvent, statusEvent, errorEvent } from './stream-json.ts';
 import type { ContentBlockEvent } from './stream-json.ts';
 import { detectBinary } from './detect.ts';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 
 export interface CursorAdapterOptions {
   defaultModel?: string;
@@ -18,6 +22,15 @@ export interface CursorAdapterOptions {
   sessionTtlMs?: number | null;
   recapMaxTurns?: number;
   recapMaxCharsPerLeg?: number;
+  /** Run in an isolated git worktree. true = named after the contextId. */
+  worktree?: boolean | string;
+  /** Start every task in plan mode. */
+  planMode?: boolean;
+}
+
+export interface CursorModel {
+  id: string;
+  name: string;
 }
 
 export class CursorAdapter implements AgentAdapter {
@@ -32,6 +45,8 @@ export class CursorAdapter implements AgentAdapter {
   readonly trust: boolean;
   readonly maxSessionTurns: number;
   readonly defaultModel: string;
+  readonly worktree: boolean | string;
+  readonly planMode: boolean;
 
   // Model routing table — VENOM routes by task label → best model per job
   readonly modelMap: Record<string, string> = {
@@ -52,6 +67,10 @@ export class CursorAdapter implements AgentAdapter {
 
   private taskAssistantForRecap = '';
   private lastUserMessage = '';
+  /** A2A contextId -> Cursor session id. */
+  private readonly contextSessions = new Map<string, string>();
+  /** contextId of the task whose first system event has not arrived yet. */
+  private pendingContextId: string | null = null;
 
   skills = [
     { id: 'code', name: 'Code generation and editing', tags: ['code', 'edit', 'write', 'composer'] },
@@ -66,6 +85,8 @@ export class CursorAdapter implements AgentAdapter {
     this.trust = opts.trust ?? true;
     this.maxSessionTurns = opts.maxSessionTurns ?? 50;
     this.defaultModel = opts.defaultModel ?? 'composer-2.5-fast';
+    this.worktree = opts.worktree ?? false;
+    this.planMode = opts.planMode ?? false;
     this.sessionStore = opts.sessionStore ?? new CursorSessionStore({
       sessionTtlMs: opts.sessionTtlMs,
       recapMaxTurns: opts.recapMaxTurns,
@@ -101,12 +122,24 @@ export class CursorAdapter implements AgentAdapter {
 
     this.sessionStore.expireLastSessionIfStale();
 
+    const contextId = task.context?.contextId;
     const resumeSession = task.context?.metadata?.resumeSession as string | undefined;
     const continueLast = task.context?.metadata?.continueLast as boolean | undefined;
     const newChat = task.context?.metadata?.newChat as boolean | undefined;
+    this.pendingContextId = null;
 
     if (resumeSession) {
       args.push('--resume', resumeSession);
+    } else if (contextId) {
+      // One Cursor session per A2A context; a new context never inherits another's.
+      const sid = newChat ? undefined : this.contextSessions.get(contextId);
+      const session = sid ? this.sessionStore.get(sid) : undefined;
+      if (sid && session && session.turnCount < this.maxSessionTurns) {
+        args.push('--resume', sid);
+      } else {
+        this.contextSessions.delete(contextId);
+        this.pendingContextId = contextId;
+      }
     } else if (continueLast && this.sessionStore.lastSession) {
       args.push('--continue');
     } else if (!newChat && this.sessionStore.lastSession) {
@@ -116,7 +149,13 @@ export class CursorAdapter implements AgentAdapter {
       }
     }
 
-    if (task.context?.metadata?.planMode) {
+    const wt = task.context?.metadata?.worktree ?? this.worktree;
+    if (wt) {
+      const name = typeof wt === 'string' ? wt : `plumb-${(contextId ?? task.id).replace(/[^A-Za-z0-9_-]/g, '-')}`;
+      args.push('--worktree', name);
+    }
+
+    if (task.context?.metadata?.planMode ?? this.planMode) {
       args.push('--plan');
     }
 
@@ -150,6 +189,10 @@ export class CursorAdapter implements AgentAdapter {
           typeof json.cwd === 'string' ? json.cwd : '',
           typeof json.model === 'string' ? json.model : '',
         );
+        if (this.pendingContextId) {
+          this.contextSessions.set(this.pendingContextId, json.session_id);
+          this.pendingContextId = null;
+        }
       }
       return [];
     }
@@ -209,6 +252,17 @@ export class CursorAdapter implements AgentAdapter {
     return detectBinary('cursor-agent', 1, 'stream-json');
   }
 
+  /** Session id bound to an A2A contextId, if any. */
+  sessionForContext(contextId: string): string | undefined {
+    return this.contextSessions.get(contextId);
+  }
+
+  /** Models the installed cursor-agent offers (`--list-models`). */
+  async listModels(binary: string = this.binary): Promise<CursorModel[]> {
+    const { stdout } = await execFileAsync(binary, ['--list-models'], { timeout: 15000 });
+    return parseModelList(stdout);
+  }
+
   setUserMessage(msg: string): void {
     this.lastUserMessage = msg;
   }
@@ -216,4 +270,15 @@ export class CursorAdapter implements AgentAdapter {
   private resetRecapTaskState(): void {
     this.taskAssistantForRecap = '';
   }
+}
+
+/** Parse `id - Display Name` lines; ANSI codes, blanks and headers are skipped. */
+export function parseModelList(out: string): CursorModel[] {
+  const models: CursorModel[] = [];
+  for (const raw of out.split('\n')) {
+    const line = raw.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '').trim();
+    const m = /^([A-Za-z0-9][\w.\-]*)\s+-\s+(.+)$/.exec(line);
+    if (m) models.push({ id: m[1]!, name: m[2]!.replace(/\s*\((current|default)[^)]*\)\s*$/i, '').trim() });
+  }
+  return models;
 }
