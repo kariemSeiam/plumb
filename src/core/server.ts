@@ -18,6 +18,8 @@ import { PlumbExecutor } from './executor.ts';
 import { PlumbTaskStore } from './task-store.ts';
 import { writeRegistration } from './registry.ts';
 import { a2aVersionMiddleware, SUPPORTED_VERSIONS } from './a2a-v1.ts';
+import { scanForInterrupted, writeInterruptedEvents } from './crash-resume.ts';
+import { log } from './log.ts';
 
 let _pkgVersion: string | undefined;
 function getPackageVersion(): string {
@@ -60,6 +62,28 @@ export function createPlumbServer(config: PlumbConfig & { adapter: AgentAdapter 
       ledger: ledger.getPath(),
     },
   };
+
+  // ─── Crash resume ───────────────────────────────────────────────
+  // Scan ledger for tasks that were running when the server died.
+  // Must run BEFORE accepting new tasks.
+  const ledgerDir = '.plumb/ledger';
+  const crashResumeResult = scanForInterrupted(ledgerDir);
+  if (crashResumeResult.interruptedCount > 0) {
+    // We need a temporary append function since ledger is created before executor
+    const tempAppend = (event: Record<string, unknown>) => {
+      try {
+        const { appendFileSync } = require('node:fs');
+        const { join } = require('node:path');
+        const today = new Date().toISOString().slice(0, 10);
+        const p = join(ledgerDir, `${today}.jsonl`);
+        appendFileSync(p, JSON.stringify(event) + '\n');
+      } catch { /* non-fatal */ }
+    };
+    writeInterruptedEvents(tempAppend, crashResumeResult);
+    log('warn', 'crash_resume_complete', {
+      interruptedCount: crashResumeResult.interruptedCount,
+    });
+  }
 
   const executor = new PlumbExecutor(adapter, config, ledger);
   const taskStore = new PlumbTaskStore({ maxTasks: 100, completedRetentionMinutes: 60 });
@@ -110,6 +134,7 @@ export function createPlumbServer(config: PlumbConfig & { adapter: AgentAdapter 
         res.redirect('/.well-known/agent-card.json');
       });
       app.get('/health', (_req: Request, res: Response) => {
+        const breakerDiag = executor.breaker.getDiagnostics();
         const health: Record<string, unknown> = {
           status: 'ok',
           agent: name,
@@ -119,6 +144,17 @@ export function createPlumbServer(config: PlumbConfig & { adapter: AgentAdapter 
           ledger: ledger.getPath(),
           ledgerEntries: ledger.getEntryCount(),
           uptime: Math.floor((Date.now() - startTime) / 1000),
+          breaker: {
+            state: breakerDiag.state,
+            failuresInWindow: breakerDiag.failuresInWindow,
+            totalSuccesses: breakerDiag.totalSuccesses,
+            totalFailures: breakerDiag.totalFailures,
+            threshold: breakerDiag.threshold,
+          },
+          interrupted: {
+            count: crashResumeResult.interruptedCount,
+            taskIds: crashResumeResult.taskIds.slice(0, 20), // Cap at 20 for response size
+          },
         };
         const alive = executor.isPersistentAlive();
         if (alive !== null) {

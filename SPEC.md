@@ -171,9 +171,23 @@ interface AgentAdapter {
 
 **`LedgerEvent`** (disk — one JSON object per line in `.plumb/ledger/{date}.jsonl`):
 
-`task_submitted` | `task_running` | `progress` | `log` | `task_completed` | `task_failed` | `task_cancelled`
+`task_submitted` | `task_running` | `progress` | `log` | `task_completed` | `task_failed` | `task_cancelled` | `task_interrupted`
 
 Never rewrite or delete ledger files. Write failure is non-fatal (stderr JSON log).
+
+---
+
+## Circuit breaker and crash resume
+
+Each server runs one circuit breaker for its adapter (`src/core/circuit-breaker.ts`).
+
+- **closed**: tasks run. 5 failures inside a rolling 60 s window open the breaker.
+- **open**: new tasks fail at once with failure kind `rejected` and the message "Circuit breaker is open", and no child process is spawned. After a 120 s cooldown the breaker goes half-open.
+- **half_open**: one probe task is let through. Success closes the breaker; failure reopens it for a full cooldown.
+
+The defaults are `failureThreshold: 5`, `windowMs: 60000`, `cooldownMs: 120000`, and `PlumbExecutor` takes them as its `breakerConfig` argument. `GET /health` reports `breaker` (state, failures in window, totals, threshold).
+
+On start, the server scans the ledger for tasks that never reached a terminal event and appends a `task_interrupted` event for each (`src/core/crash-resume.ts`). `GET /health` reports them under `interrupted` (count and up to 20 task ids). Tasks are not re-run.
 
 ---
 

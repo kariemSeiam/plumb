@@ -105,7 +105,8 @@ export type LedgerEvent =
   | { type: 'log'; taskId: string; level: string; text: string; timestamp: string; ink?: TaskMetadata }
   | { type: 'task_completed'; taskId: string; timestamp: string; ink?: TaskMetadata }
   | { type: 'task_failed'; taskId: string; error: string; timestamp: string; ink?: TaskMetadata }
-  | { type: 'task_cancelled'; taskId: string; timestamp: string; ink?: TaskMetadata };
+  | { type: 'task_cancelled'; taskId: string; timestamp: string; ink?: TaskMetadata }
+  | { type: 'task_interrupted'; taskId: string; previousStatus: string; timestamp: string; ink?: TaskMetadata };
 
 // ─── Persistent RPC Types ────────────────────────────────────────────────────
 // Correlated request/response over stdin/stdout for persistent agents (e.g. Pi).

@@ -90,6 +90,10 @@ Clients disconnect. Processes crash. The ledger does not forget:
 Append-only JSONL, one file per day, written whether or not anyone was listening.
 Query it with `jq` or DuckDB. No database to run.
 
+## Failing agents and crashes
+
+If an agent keeps failing (5 failures in 60 s), plumb opens a circuit breaker and rejects new tasks for 120 s instead of spawning more broken children. If the server dies mid-task, the next start marks those tasks `task_interrupted` in the ledger. Details in [SPEC.md](SPEC.md#circuit-breaker-and-crash-resume).
+
 ## Adapters
 
 | Agent | CLI | Mode | Speaks |

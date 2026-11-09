@@ -7,6 +7,8 @@ import type { AgentExecutor, RequestContext, ExecutionEventBus } from '@a2a-js/s
 import type { AgentAdapter, AgentTask, AdapterEvent, PlumbConfig, TaskMetadata } from '../types.ts';
 import { ProcessManager, PersistentProcess } from './process.ts';
 import { Ledger } from './ledger.ts';
+import { CircuitBreaker, type BreakerConfig } from './circuit-breaker.ts';
+import { log } from './log.ts';
 
 /** Fang Post-Parse hook: transforms events after parseLine, before executor processes them. */
 export type FangPostParse = (events: AdapterEvent[], ctx: { taskId: string; adapterId: string }) => AdapterEvent[];
@@ -21,17 +23,39 @@ export class PlumbExecutor implements AgentExecutor {
   /** Active INK metadata per taskId. Bounded: entries deleted on task completion/failure/cancellation. */
   private inkByTaskId = new Map<string, TaskMetadata>();
 
+  /** Per-adapter circuit breaker — protects against flapping agents. */
+  readonly breaker: CircuitBreaker;
+
   private fangHook?: FangPostParse;
 
-  constructor(adapter: AgentAdapter, config: PlumbConfig, ledger: Ledger, fangHook?: FangPostParse) {
+  constructor(adapter: AgentAdapter, config: PlumbConfig, ledger: Ledger, breakerConfig?: BreakerConfig, fangHook?: FangPostParse) {
     this.adapter = adapter;
     this.config = config;
     this.ledger = ledger;
+    this.breaker = new CircuitBreaker(breakerConfig);
     this.fangHook = fangHook;
   }
 
   async execute(ctx: RequestContext, bus: ExecutionEventBus): Promise<void> {
     const { taskId, contextId } = ctx;
+
+    // ─── Circuit breaker check ────────────────────────────────────
+    // Reject immediately if breaker is open (no probe slot available).
+    // Prevents cascading failures when an adapter is flapping.
+    if (!this.breaker.allowRequest()) {
+      const diag = this.breaker.getDiagnostics();
+      log('warn', 'breaker_rejected', {
+        taskId,
+        state: diag.state,
+        failuresInWindow: diag.failuresInWindow,
+        threshold: diag.threshold,
+      });
+      this.fail(bus, taskId, contextId,
+        `Circuit breaker is ${diag.state}. ${diag.failuresInWindow} failures in window. Try again after cooldown.`,
+        'rejected');
+      bus.finished();
+      return;
+    }
 
     // Normalize A2A part boundary: accept both `type` (A2A standard) and `kind` (Plumb internal)
     type PartEntry = { kind?: string; type?: string; text?: string };
@@ -237,12 +261,14 @@ export class PlumbExecutor implements AgentExecutor {
         ledger.append({ type: 'task_completed', taskId, timestamp: new Date().toISOString() });
         bus.publish({ kind: 'message', messageId: randomUUID(), role: 'agent', parts: [{ kind: 'text', text: accumulated.text || 'Done' }] });
         bus.finished();
+        this.breaker.recordSuccess();
         resolve();
       }
       if (ev.type === 'error') {
         settled.value = true;
         clearTimeout(timer);
         cleanup();
+        this.breaker.recordFailure('ADAPTER_PARSE_ERROR');
         ledger.append({ type: 'task_failed', taskId, error: ev.message, timestamp: new Date().toISOString() });
         this.fail(bus, taskId, contextId, ev.message);
         bus.finished();
@@ -282,6 +308,7 @@ export class PlumbExecutor implements AgentExecutor {
         settled.value = true;
         this.pm.kill(taskId);
         this.inkByTaskId.delete(taskId);
+        this.breaker.recordFailure('CLI_TIMEOUT');
         ledger.append({ type: 'task_failed', taskId, error: `timed out after ${timeout}s`, timestamp: new Date().toISOString(), ink });
         this.fail(bus, taskId, contextId, `Task timed out after ${timeout}s`);
         bus.finished();
@@ -313,9 +340,11 @@ export class PlumbExecutor implements AgentExecutor {
             this.contextByTaskId.delete(taskId);
             this.inkByTaskId.delete(taskId);
             if (code === 0) {
+              this.breaker.recordSuccess();
               ledger.append({ type: 'task_completed', taskId, timestamp: new Date().toISOString(), ink });
               bus.publish({ kind: 'message', messageId: randomUUID(), role: 'agent', parts: [{ kind: 'text', text: accumulated.text || '(no output)' }] });
             } else {
+              this.breaker.recordFailure('CLI_RUNTIME_ERROR');
               const errMsg = `Process exited with code ${code}`;
               ledger.append({ type: 'task_failed', taskId, error: errMsg, timestamp: new Date().toISOString(), ink });
               bus.publish({ kind: 'message', messageId: randomUUID(), role: 'agent', parts: [{ kind: 'text', text: errMsg }] });
@@ -387,6 +416,7 @@ export class PlumbExecutor implements AgentExecutor {
         settled.value = true;
         this.persistent?.removeLineHandler(taskId);
         this.inkByTaskId.delete(taskId);
+        this.breaker.recordFailure('CLI_TIMEOUT');
         ledger.append({ type: 'task_failed', taskId, error: `timed out after ${timeout}s`, timestamp: new Date().toISOString(), ink });
         this.fail(bus, taskId, contextId, `Task timed out after ${timeout}s`);
         bus.finished();
