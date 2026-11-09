@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 300" width="880" height="300" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <title>plumb: CLI coding agents in, A2A agents out</title>
+  <!-- left: the islands -->
+  <text x="40" y="34" font-size="12" fill="#8b949e" letter-spacing="1.5">TODAY · ISLANDS</text>
+  <g font-size="15" fill="#8b949e">
+    <rect x="40" y="56" width="250" height="40" rx="8" fill="none" stroke="#8b949e" stroke-dasharray="4 4"/>
+    <text x="58" y="81">claude</text><text x="272" y="81" text-anchor="end" font-size="11">stream-json</text>
+    <rect x="40" y="108" width="250" height="40" rx="8" fill="none" stroke="#8b949e" stroke-dasharray="4 4"/>
+    <text x="58" y="133">cursor-agent</text><text x="272" y="133" text-anchor="end" font-size="11">stream-json</text>
+    <rect x="40" y="160" width="250" height="40" rx="8" fill="none" stroke="#8b949e" stroke-dasharray="4 4"/>
+    <text x="58" y="185">pi</text><text x="272" y="185" text-anchor="end" font-size="11">jsonl-rpc</text>
+    <rect x="40" y="212" width="250" height="40" rx="8" fill="none" stroke="#8b949e" stroke-dasharray="4 4"/>
+    <text x="58" y="237">opencode</text><text x="272" y="237" text-anchor="end" font-size="11">json-stream</text>
+  </g>
+  <!-- pipes in -->
+  <g stroke="#f0a860" stroke-width="2" fill="none">
+    <path d="M290 76 C 340 76, 340 154, 390 154"/>
+    <path d="M290 128 C 340 128, 340 154, 390 154"/>
+    <path d="M290 180 C 340 180, 340 154, 390 154"/>
+    <path d="M290 232 C 340 232, 340 154, 390 154"/>
+  </g>
+  <!-- plumb -->
+  <rect x="390" y="122" width="160" height="64" rx="32" fill="#f0a860"/>
+  <text x="470" y="151" font-size="20" font-weight="700" fill="#1a1a1a" text-anchor="middle">plumb</text>
+  <text x="470" y="171" font-size="11" fill="#1a1a1a" text-anchor="middle">wrap · ledger · fleet</text>
+  <!-- pipe out -->
+  <path d="M550 154 L 600 154" stroke="#f0a860" stroke-width="2"/>
+  <path d="M592 148 L 602 154 L 592 160" stroke="#f0a860" stroke-width="2" fill="none"/>
+  <!-- right: the network -->
+  <text x="616" y="34" font-size="12" fill="#8b949e" letter-spacing="1.5">WITH PLUMB · ONE NETWORK</text>
+  <rect x="616" y="56" width="240" height="196" rx="12" fill="none" stroke="#f0a860" stroke-width="2"/>
+  <g font-size="14" fill="#8b949e">
+    <text x="638" y="90">● agent card</text>
+    <text x="638" y="122">● message / stream (SSE)</text>
+    <text x="638" y="154">● cancel stops the run</text>
+    <text x="638" y="186">● bearer auth</text>
+    <text x="638" y="218">● every task on disk</text>
+  </g>
+  <text x="736" y="282" font-size="12" fill="#8b949e" text-anchor="middle">any A2A client can find it and hire it</text>
+</svg>
