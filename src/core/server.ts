@@ -5,7 +5,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
 import express from 'express';
-import { DefaultRequestHandler } from '@a2a-js/sdk/server';
+import { DefaultRequestHandler, InMemoryPushNotificationStore, DefaultPushNotificationSender } from '@a2a-js/sdk/server';
 import {
   agentCardHandler,
   jsonRpcHandler,
@@ -17,6 +17,7 @@ import { Ledger } from './ledger.ts';
 import { PlumbExecutor } from './executor.ts';
 import { PlumbTaskStore } from './task-store.ts';
 import { writeRegistration } from './registry.ts';
+import { a2aVersionMiddleware, SUPPORTED_VERSIONS } from './a2a-v1.ts';
 
 let _pkgVersion: string | undefined;
 function getPackageVersion(): string {
@@ -42,7 +43,13 @@ export function createPlumbServer(config: PlumbConfig & { adapter: AgentAdapter 
     protocolVersion: '0.3.0',
     version: getPackageVersion(),
     url: process.env.PLUMB_PUBLIC_URL ?? `http://localhost:${port}`,
-    capabilities: { streaming: true },
+    capabilities: { streaming: true, pushNotifications: true },
+    // v1.0 discovery; the top-level url/protocolVersion above stay for v0.3 clients.
+    supportedInterfaces: [...SUPPORTED_VERSIONS].reverse().map(v => ({
+      url: `${process.env.PLUMB_PUBLIC_URL ?? `http://localhost:${port}`}/a2a/jsonrpc`,
+      protocolBinding: 'JSONRPC',
+      protocolVersion: v,
+    })),
     skills: adapter.skills.map(s => ({ ...s, description: s.name })),
     defaultInputModes: ['text/plain'],
     defaultOutputModes: ['text/plain'],
@@ -56,7 +63,10 @@ export function createPlumbServer(config: PlumbConfig & { adapter: AgentAdapter 
 
   const executor = new PlumbExecutor(adapter, config, ledger);
   const taskStore = new PlumbTaskStore({ maxTasks: 100, completedRetentionMinutes: 60 });
-  const requestHandler = new DefaultRequestHandler(agentCard, taskStore, executor);
+  const pushStore = new InMemoryPushNotificationStore();
+  const requestHandler = new DefaultRequestHandler(
+    agentCard, taskStore, executor, undefined, pushStore, new DefaultPushNotificationSender(pushStore),
+  );
 
   // Periodic cleanup: evict terminal tasks past retention window every 5 min
   const cleanupInterval = setInterval(() => {
@@ -137,6 +147,7 @@ export function createPlumbServer(config: PlumbConfig & { adapter: AgentAdapter 
       }
 
       // A2A endpoints
+      app.use('/a2a/jsonrpc', a2aVersionMiddleware(taskStore));
       app.use('/a2a/jsonrpc', jsonRpcHandler({ requestHandler, userBuilder: UserBuilder.noAuthentication }));
       app.use('/a2a/rest', restHandler({ requestHandler, userBuilder: UserBuilder.noAuthentication }));
     },

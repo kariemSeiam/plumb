@@ -90,6 +90,11 @@ export class PlumbTaskStore implements TaskStore {
     return Promise.resolve(shallowClone(entry.task));
   }
 
+  /** Snapshot of all stored tasks. Does not touch LRU order. */
+  list(): Task[] {
+    return [...this.entries.values()].map(e => shallowClone(e.task));
+  }
+
   /** Remove a single task by ID. */
   delete(taskId: string, _context?: ServerCallContext): Promise<void> {
     this.entries.delete(taskId);
