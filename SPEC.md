@@ -12,7 +12,7 @@ Stays aligned with **`MANIFEST.yaml`** (product state), **`src/types.ts`** (inte
 
 One sentence: a bridge between orchestrators that speak **A2A** and agents that speak **stdin/stdout**.
 
-```
+```text
 Orchestrator → HTTP/JSON-RPC → Plumb → subprocess → CLI agent → parseLine → AdapterEvent[] → A2A + ledger
 ```
 
@@ -27,6 +27,7 @@ These are the load-bearing walls. Every feature decision must pass these tests.
 > *Plumb is a wire plus a minimum policy plane required for safety. The policy plane will not grow into orchestration.*
 
 **What the policy plane covers:**
+
 - DOS protection (deadline admission, depth cap, request size limit)
 - Budget admission (prevents runaway mesh traversal — not fork-bomb prevention)
 - Self-preservation (rate limits, bulkheads — Day 7)
@@ -34,6 +35,7 @@ These are the load-bearing walls. Every feature decision must pass these tests.
 - Caller identity enforcement (authentication at the wire)
 
 **What the policy plane will never cover:**
+
 - Smart routing across discovered peers (expose data via `GET /a2a/peers` but don't route)
 - Internal retries (surface 503 + `Retry-After` only)
 - Agent selection (that's orchestration)
@@ -58,7 +60,7 @@ These are the load-bearing walls. Every feature decision must pass these tests.
 
 ## What exists right now
 
-```
+```text
 src/
   types.ts           AgentTask, AdapterEvent, PlumbConfig, AgentAdapter, DetectionResult, LedgerEvent, RPC types
   config.ts          FleetConfig, YAML parsing, plumb.yaml validation, fleet up/status/validate
@@ -255,7 +257,7 @@ See **`MANIFEST.yaml`** → `build_state` and `identity.version` (aligned with n
 | Idempotency TTL | Independent of budget. 60s default, configurable per adapter |
 | Idempotency scope | `(callerIdentity, idempotencyKey)` — not global |
 | Idempotency concurrent | Duplicate mid-flight returns existing taskId immediately, no queue |
-| Request size limit | 10MB (`express.json({ limit: '10mb' })`)
+| Request size limit | 10MB (`express.json({ limit: '10mb' })`) |
 
 ---
 
