@@ -4,7 +4,7 @@
 
 ### Your coding agent, on the network.
 
-`plumb wrap claude` and Claude Code becomes an agent that any other agent can find, hire, stream and cancel, over the open [A2A](https://a2a-protocol.org) protocol. Same for Cursor, Pi, OpenCode, or any CLI that prints to stdout.
+`plumb wrap claude` and Claude Code becomes an agent that any other agent can find, hire, stream and cancel, over the open [A2A](https://a2a-protocol.org) protocol. Same for Codex, Cursor, Pi, OpenCode, Aider, or any CLI that prints to stdout.
 
 [![CI](https://github.com/kariemSeiam/plumb/actions/workflows/ci.yml/badge.svg)](https://github.com/kariemSeiam/plumb/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/plumb-bridge?color=f0a860)](https://www.npmjs.com/package/plumb-bridge) [![License: MIT](https://img.shields.io/badge/license-MIT-8b949e.svg)](LICENSE)
 
@@ -114,7 +114,7 @@ Adding one is a single file with one function, `parseLine()`, that turns a line 
 | POST | `/a2a/jsonrpc` | Bearer, compared in constant time |
 | * | `/a2a/rest` | Bearer |
 
-`message/send`, `message/stream` (SSE), `tasks/get` and `tasks/cancel`. Cancel stops the run;
+Speaks A2A v1.0 and v0.3 on the same endpoint, picked by the `A2A-Version` header: send, stream (SSE), get, list, cancel, and push-notification config. Cancel stops the run;
 for oneshot agents it kills the child process.
 
 ## What plumb refuses to be
@@ -122,12 +122,12 @@ for oneshot agents it kills the child process.
 Plumb does not think, decide or remember. It moves bytes between processes and records what happened.
 No dashboard (health is `200` or not), no orchestration (you route, plumb carries),
 no hosted service, no plugin marketplace. Small enough to read in an afternoon:
-`bun test` runs 101 tests in about 7 seconds.
+`bun test` runs 145 tests in about 16 seconds.
 
 ## Next
 
-- [ ] Codex and Aider adapters
-- [ ] A2A v1.0: version negotiation, task listing, push notifications (plumb speaks v0.3 today)
+- [x] Codex and Aider adapters
+- [x] A2A v1.0 alongside v0.3: version negotiation, task listing, push-notification config ([conformance table](docs/a2a-conformance.md))
 - [ ] Circuit breaker and crash-resume, already running in production, coming into the repo
 - [ ] Signed agent cards
 
