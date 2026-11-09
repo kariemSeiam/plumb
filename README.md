@@ -126,13 +126,13 @@ for oneshot agents it kills the child process.
 Plumb does not think, decide or remember. It moves bytes between processes and records what happened.
 No dashboard (health is `200` or not), no orchestration (you route, plumb carries),
 no hosted service, no plugin marketplace. Small enough to read in an afternoon:
-`bun test` runs 145 tests in about 16 seconds.
+`bun test` runs 171 tests in about 17 seconds.
 
 ## Next
 
 - [x] Codex and Aider adapters
 - [x] A2A v1.0 alongside v0.3: version negotiation, task listing, push-notification config ([conformance table](docs/a2a-conformance.md))
-- [ ] Circuit breaker and crash-resume, already running in production, coming into the repo
+- [x] Circuit breaker and crash-resume (were running only in production, now in the repo with their tests)
 - [ ] Signed agent cards
 
 ## Run it from source
