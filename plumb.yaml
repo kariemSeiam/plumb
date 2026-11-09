@@ -27,6 +27,20 @@ agents:
     mode: oneshot
     name: opencode
 
+  - id: codex
+    cli: codex
+    port: 3008
+    mode: oneshot
+    timeout: 600
+    name: codex
+
+  - id: aider
+    cli: aider
+    port: 3009
+    mode: oneshot
+    timeout: 600
+    name: aider
+
   - id: venom
     cli: venom
     port: 3004

@@ -46,7 +46,7 @@ $ plumb send echo "hello from another agent"
 hello from another agent
 ```
 
-Swap `cat` for `claude`, `cursor-agent`, `pi` or `opencode`. Nothing else changes.
+Swap `cat` for `claude`, `cursor-agent`, `pi`, `opencode`, `codex` or `aider`. Nothing else changes.
 The agent now publishes a card at `/.well-known/agent-card.json`, so any A2A client can discover what it does.
 
 ## A fleet in one file
@@ -98,6 +98,8 @@ Query it with `jq` or DuckDB. No database to run.
 | Cursor | `cursor-agent` | oneshot | stream-json |
 | Pi | `pi` | persistent | JSONL-RPC |
 | OpenCode | `opencode` | oneshot | json-stream |
+| Codex | `codex` | oneshot | JSONL (`exec --json`) |
+| Aider | `aider` | oneshot | text (`--message`) |
 | Anything else | any command | oneshot | text |
 
 Adding one is a single file with one function, `parseLine()`, that turns a line of stdout into events.

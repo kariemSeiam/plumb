@@ -7,6 +7,8 @@ import { PiAdapter } from './pi.ts';
 import { ClaudeAdapter } from './claude.ts';
 import { CursorAdapter } from './cursor.ts';
 import { OpenCodeAdapter } from './opencode.ts';
+import { CodexAdapter } from './codex.ts';
+import { AiderAdapter } from './aider.ts';
 import { WolfyAdapter } from './wolfy.ts';
 import { VenomAdapter } from './venom.ts';
 import { GenericAdapter } from './generic.ts';
@@ -20,6 +22,8 @@ const KNOWN_ADAPTERS: AgentAdapter[] = [
   new ClaudeAdapter(),
   new CursorAdapter(),
   new OpenCodeAdapter(),
+  new CodexAdapter(),
+  new AiderAdapter(),
   new VenomAdapter(),
 ];
 

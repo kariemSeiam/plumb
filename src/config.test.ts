@@ -168,3 +168,19 @@ describe('validateFleetConfig', () => {
     expect(result.valid).toBe(true);
   });
 });
+
+describe('shipped plumb.yaml', () => {
+  it('lists codex and aider and validates without errors', async () => {
+    await setup();
+    const config = (await loadFleetConfig(join(import.meta.dir, '..', 'plumb.yaml')))!;
+    const ids = config.agents.map(a => a.id);
+    expect(ids).toContain('codex');
+    expect(ids).toContain('aider');
+    const result = await validateFleetConfig(config);
+    expect(result.agents.filter(a => a.id === 'codex' || a.id === 'aider').every(a => a.errors.length === 0)).toBe(true);
+    const { detectAll } = await import('./adapters/registry.ts');
+    const names = (await detectAll()).map(d => d.name);
+    expect(names).toContain('Codex');
+    expect(names).toContain('Aider');
+  });
+});
