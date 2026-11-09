@@ -1,4 +1,4 @@
 {
   // README is written for GitHub's renderer: centered hero (HTML) and long prose lines.
-  "config": { "MD013": false, "MD033": false, "MD041": false, "MD060": false }
+  "config": { "MD013": false, "MD033": false, "MD041": false, "MD060": false, "MD026": false }
 }
