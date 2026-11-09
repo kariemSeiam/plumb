@@ -1,0 +1,17 @@
+[Unit]
+Description=Plumb — Claude Agent (A2A Bridge)
+After=network.target
+# Cutover: systemctl stop fang-claude && systemctl start plumb-claude
+
+[Service]
+Type=simple
+WorkingDirectory=/home/plumb
+ExecStart=/root/.bun/bin/bun run /home/plumb/src/main.ts wrap "claude -p --output-format stream-json" --port 3002 --timeout 300
+EnvironmentFile=-/etc/plumb/agent.env
+Environment=HOME=/root
+Environment=PATH=/root/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/root/bin
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

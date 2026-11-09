@@ -1,0 +1,138 @@
+# PLUMB MANIFEST — Single Source of Truth
+# Last updated: 2026-05-29 — v0.2.1
+
+identity:
+  name: plumb
+  npm_package: plumb-bridge
+  version: 0.∞.∞
+  repo: https://github.com/kariemSeiam/plumb
+  tagline: "Quiet pipes for noisy agents"
+  motto: "silent, accurate, always down"
+
+stack:
+  runtime: bun
+  typescript: true
+  transport: a2a-http-sse
+  protocol: jsonrpc-2.0
+  ledger: jsonl-append-only
+
+adapters:
+  echo:
+    cli: cat
+    mode: oneshot
+    tier: 1
+    status: active
+  pi:
+    cli: pi
+    mode: persistent
+    tier: 1
+    status: active
+  claude:
+    cli: claude
+    mode: oneshot
+    tier: 1
+    status: active
+  cursor:
+    cli: cursor-agent
+    mode: oneshot
+    tier: 1
+    status: active
+  opencode:
+    cli: opencode
+    mode: oneshot
+    tier: 2
+    status: active
+  venom:
+    cli: venom
+    mode: oneshot
+    tier: 3
+    status: active
+  wolfy:
+    cli: wolfy
+    mode: persistent
+    tier: 1
+    status: active
+    note: "First-class mesh citizen. Not wrapped — born into the mesh. Memory, knowledge graph, subagents, 11 minds. Persistent identity across sessions."
+  generic:
+    cli: any
+    mode: oneshot
+    tier: 3
+    status: active
+
+build_order:
+  - types
+  - core_ledger
+  - core_process
+  - core_executor
+  - core_server
+  - core_task_store
+  - adapter_echo
+  - adapter_generic
+  - cli
+  - conformance_test
+  - adapter_pi
+  - adapter_claude
+  - adapter_cursor
+  - adapter_opencode
+  - adapter_venom
+  - adapter_stream_json_utility
+  - adapter_parse_test
+
+build_state:
+  phase: 2
+  current: wave-2-config
+  done:
+    - types
+    - core_ledger
+    - core_process
+    - core_executor
+    - core_server
+    - core_task_store
+    - adapter_echo
+    - adapter_generic
+    - cli
+    - conformance_test
+    - adapter_pi
+    - adapter_claude
+    - adapter_cursor
+    - adapter_opencode
+    - adapter_venom
+    - adapter_stream_json_utility
+    - adapter_parse_test
+    - npm_publish
+    - persistent_wait_until_ready
+    - persistent_rpc_commands
+    - cursor_session_store
+    - a2a_boundary_normalization
+    - host_tool_frame_leak_fix
+    - detect_all_wiring
+    - docs_drift_scrub
+    - config_yaml_parsing
+    - config_tests
+    - thinking_content_pipeline
+    - fleet_up_graceful_shutdown
+  current_wave: >
+    Wave 2: Config + Fleet Boot.
+    Declarative plumb.yaml + multi-agent boot story.
+    No Pulse. No circuit breaker. No crash resume.
+    Config is enabling constraint for every later wave.
+  next: phase_3_p0_stable_core
+  blockers: []
+  ci_note: Next npm publish after Wave 2 ships plumb fleet validate + up.
+
+success_metrics:
+  agent_card_test: PASS
+  task_lifecycle_test: PASS
+  ledger_survival_test: PASS
+  routing_test: PASS
+
+notes:
+  adapter_host_editor: skipped — the packaged host IDE is not a headless coding-agent CLI.
+
+brand:
+  palette: [slate, cistern, water, brass]
+  villain: The Demo
+  refusal: no-dashboards
+  interface: logs-are-the-ui
+  afterlife: dissolve-into-protocol
+  metaphor: brass-plumb-bob

@@ -1,448 +1,190 @@
-# Writing Adapters for Fang
+# ADAPTERS
 
-> *Every CLI agent speaks a slightly different language. Adapters are the translators.*
-
----
-
-## What Is an Adapter?
-
-An adapter is a small TypeScript class that sits between Fang's **FangServer** and your CLI agent. It has one job: **translate between A2A protocol messages and CLI-specific stdin/stdout.**
-
-```
-A2A Task (standard)  ──formatInput──►  CLI stdin (agent-specific)
-CLI stdout (varied)  ──parseOutput──►  A2A TaskUpdate (standard)
-```
-
-The adapter doesn't manage processes, HTTP, or SSE. It only handles translation. Everything else is handled by the core `FangServer`.
+The contract that every CLI agent must satisfy to join the mesh.
+One interface. Eight implementations. Generic as the implicit fallback.
 
 ---
 
 ## The Contract
 
-Every adapter extends `BaseAdapter` and implements three things:
+Authoritative source: `src/types.ts`.
 
 ```typescript
-import { BaseAdapter, Task, TaskUpdate } from "@fangai/core";
+interface AgentAdapter {
+  readonly id: string;
+  readonly binary: string;
+  readonly tier: 1 | 2 | 3;
+  readonly displayName: string;
+  readonly mode: 'oneshot' | 'persistent';
+  skills: Array<{ id: string; name: string; tags: string[] }>;
 
-export class MyAdapter extends BaseAdapter {
-  /**
-   * Format an A2A task into a string that gets written to the CLI's stdin.
-   * 
-   * @param task - The incoming A2A task
-   * @returns string to write to stdin (usually ends with \n)
-   */
-  formatInput(task: Task): string {
-    // Your implementation
-  }
-
-  /**
-   * Parse a single line of CLI stdout into an A2A TaskUpdate.
-   * Return null if the line should be ignored (empty lines, debug output, etc.)
-   * 
-   * @param line - One line from the CLI's stdout
-   * @returns TaskUpdate or null
-   */
-  parseOutput(line: string): TaskUpdate | null {
-    // Your implementation
-  }
-
-  /**
-   * Detect if this adapter should handle the given CLI command.
-   * Called during auto-detection when user runs `fang wrap <command>`.
-   * 
-   * @param cli - The full CLI command string (e.g., "pi --mode rpc")
-   * @returns true if this adapter handles this CLI
-   */
-  static canHandle(cli: string): boolean {
-    // Your implementation
-  }
+  buildArgs(task: AgentTask, config: PlumbConfig): string[];
+  formatInput(task: AgentTask): string;
+  parseLine(line: string): AdapterEvent[];
+  detect(): Promise<DetectionResult | null>;
 }
 ```
+
+Four methods. No more.
+
+| Method | Input | Output | Responsibility |
+|--------|-------|--------|----------------|
+| `buildArgs` | task, config | `string[]` | CLI flags for this task. No shell injection. |
+| `formatInput` | task | `string` | What to write to stdin. JSONL for Pi/Wolfy; plain text for Claude. |
+| `parseLine` | stdout line | `AdapterEvent[]` | Every line the process writes. Zero or more events per line. |
+| `detect` | — | `DetectionResult \| null` | Is the binary installed? What version? Returns null if absent. |
 
 ---
 
-## Types Reference
+## AdapterEvent
+
+The normalized event language. Every adapter speaks these — regardless of what the underlying CLI outputs.
 
 ```typescript
-// What comes in from the orchestrator
-interface Task {
-  id: string;        // unique task ID (UUID)
-  message: string;   // the user's message/task description
-}
-
-// What goes out to the orchestrator
-type TaskUpdate = {
-  type: "progress";   // intermediate output (streamed to SSE)
-  text: string;
-} | {
-  type: "complete";   // task finished successfully
-  result?: string;    // final result (optional — aggregated from progress if omitted)
-} | {
-  type: "failed";     // task failed
-  text: string;       // error message
-} | {
-  type: "log";        // informational log (not streamed to user, visible in debug)
-  level: "info" | "error";
-  text: string;
-};
+type AdapterEvent =
+  | { type: 'text-delta'; text: string }
+  | { type: 'tool-call'; tool: string; input?: Record<string, unknown> }
+  | { type: 'tool-result'; tool: string; output: string; isError?: boolean }
+  | { type: 'status'; state: 'working' | 'completed' | 'failed' }
+  | { type: 'error'; message: string; code?: string };
 ```
+
+**What the executor does with each:**
+
+| Event | Executor action |
+|-------|----------------|
+| `text-delta` | Append to accumulated output. Write `progress` to ledger. Publish `artifact-update` on A2A bus. |
+| `tool-call` | Format as `[tool] {input}`. Same ledger + bus path as text-delta. |
+| `tool-result` | Format as `→ ✓/✗ output`. Same ledger + bus path. |
+| `status: completed` | Settle task. Write `task_completed` to ledger. Publish final message. `bus.finished()`. |
+| `status: failed` / `error` | Settle task. Write `task_failed` to ledger. Publish error status. `bus.finished()`. |
+
+Once `settled = true`, subsequent events from the same process are ignored.
 
 ---
 
-## Step-by-Step: Writing an Adapter
+## Tiers
 
-### Step 1: Create the Package
+| Tier | Meaning | Examples |
+|------|---------|---------|
+| 1 | Full protocol — machine-readable output, tested against golden fixtures | Echo, Pi, Wolfy, Claude, Cursor |
+| 2 | Structured but nested — requires extra parsing, partial fixture coverage | OpenCode |
+| 3 | Best-effort — text passthrough or unstable protocol | VENOM, Generic |
 
-```bash
-cd packages/adapters
-mkdir my-agent && cd my-agent
-cat > package.json << 'EOF'
-{
-  "name": "@fangai/adapter-my-agent",
-  "version": "0.1.0",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "dependencies": {
-    "@fangai/core": "workspace:*"
-  },
-  "devDependencies": {
-    "typescript": "^5.4.0"
-  },
-  "scripts": {
-    "build": "tsc",
-    "test": "vitest run"
-  }
-}
-EOF
+Tier affects routing confidence. Orchestrators that care about reliability prefer tier-1 adapters.
+
+---
+
+## Modes
+
+**Oneshot** — one subprocess per task. Process exits when the task is done.
+
+```
+task arrives → spawn(cmd, args) → write formatInput to stdin → close stdin
+→ read stdout lines → parseLine each → emit events → process exits → settled
 ```
 
-### Step 2: Create the Adapter
+**Persistent** — one long-lived subprocess. Tasks queue and execute serially.
+
+```
+first task → spawn process → waitUntilReady (30s max) → write formatInput
+subsequent tasks → process already running → write to stdin when active
+crash → taskHandlers notified via error event → re-spawn on next task
+```
+
+Persistent processes receive a `{ "type": "ready" }` frame on stdout when initialized.
+If no ready frame arrives within 30 seconds but the process is alive, execution proceeds anyway.
+
+---
+
+## Registry Order
+
+`src/adapters/registry.ts` tries adapters in this order, matching against the `wrap` CLI string:
+
+```
+Echo → Pi → Wolfy → Claude → Cursor → OpenCode → VENOM
+```
+
+If none match: **Generic** (implicit fallback, wraps any CLI as text passthrough).
+
+Detection is by binary name substring match. `cursor-agent` matches Cursor. `pi` matches Pi.
+`my-tool` matches nothing → Generic.
+
+---
+
+## Shipped Adapters
+
+| id | binary | tier | mode | protocol | source |
+|----|--------|------|------|----------|--------|
+| echo | `cat` | 1 | oneshot | text | `src/adapters/echo.ts` |
+| pi | `pi` | 1 | oneshot | jsonl-rpc | `src/adapters/pi.ts` |
+| wolfy | `wolfy` | 1 | oneshot | jsonl-rpc (Pi dialect) | `src/adapters/wolfy.ts` |
+| claude | `claude` | 1 | oneshot | stream-json | `src/adapters/claude.ts` |
+| cursor | `cursor-agent` | 1 | oneshot | stream-json | `src/adapters/cursor.ts` |
+| opencode | `opencode` | 2 | oneshot | json-stream | `src/adapters/opencode.ts` |
+| venom | `venom` | 3 | oneshot | stream-json | `src/adapters/venom.ts` |
+| generic | any | 3 | oneshot | text | `src/adapters/generic.ts` |
+
+Shared parse utilities for stream-json adapters (Claude, Cursor, VENOM): `src/adapters/stream-json.ts`.
+
+---
+
+## Building an Adapter
+
+1. Create `src/adapters/<name>.ts`.
+2. Implement `AgentAdapter`. All four methods required.
+3. Import and add to the `KNOWN_ADAPTERS` array in `src/adapters/registry.ts` — position determines priority.
+4. Write parse tests in `test/adapter-parse.test.ts`. Minimum: one happy-path fixture, one error fixture.
+
+**Detection utility:**
 
 ```typescript
-// src/index.ts
-import { BaseAdapter, Task, TaskUpdate } from "@fangai/core";
+import { detectBinary } from './detect.ts';
 
-export class MyAgentAdapter extends BaseAdapter {
-  
-  formatInput(task: Task): string {
-    // How does your CLI expect to receive input?
-    // Examples:
-    //   - Plain text: return task.message + "\n"
-    //   - JSON: return JSON.stringify({ prompt: task.message }) + "\n"
-    //   - Custom protocol: return however your CLI expects it
-    return task.message + "\n";
-  }
-
-  parseOutput(line: string): TaskUpdate | null {
-    // Skip empty lines
-    if (!line.trim()) return null;
-
-    // Try JSON parsing first (most structured CLIs output JSON)
-    try {
-      const event = JSON.parse(line);
-      
-      // Map your CLI's event types to A2A TaskUpdate types
-      if (event.type === "response" || event.type === "text") {
-        return { type: "progress", text: event.content || event.text };
-      }
-      if (event.type === "done" || event.type === "complete") {
-        return { type: "complete", result: event.result || event.content };
-      }
-      if (event.type === "error") {
-        return { type: "failed", text: event.message || event.error };
-      }
-      // Unknown JSON event — log it
-      return { type: "log", level: "info", text: line };
-    } catch {
-      // Not JSON — treat as plain text progress
-      return { type: "progress", text: line };
-    }
-  }
-
-  static canHandle(cli: string): boolean {
-    // Return true if this adapter should handle the given CLI command
-    return cli.includes("my-agent");
-  }
+detect(): Promise<DetectionResult | null> {
+  return detectBinary('my-binary', 1, 'stream-json');
 }
 ```
 
-### Step 3: Write Tests
+`detectBinary` runs `my-binary --version`, parses the output, and returns a `DetectionResult` or null if the binary is absent or returns a non-zero exit code.
+
+**parseLine invariants:**
+
+- Must be deterministic. No side effects except on adapter-owned state (e.g., session tracking).
+- Empty or whitespace-only lines: return `[]`.
+- Non-JSON lines from tier-1 adapters: return `[{ type: 'text-delta', text: line + '\n' }]`.
+- Completion signal: return `[{ type: 'status', state: 'completed' }]`. Do not rely on process exit alone.
+- Never throw. Catch parse errors, emit `text-delta` or `error`.
+
+---
+
+## Testing
+
+Tests live in `test/adapter-parse.test.ts`. Pattern:
 
 ```typescript
-// src/__tests__/MyAgentAdapter.test.ts
-import { describe, it, expect } from "vitest";
-import { MyAgentAdapter } from "../index";
+describe('MyAdapter', () => {
+  const adapter = new MyAdapter();
 
-describe("MyAgentAdapter", () => {
-  const adapter = new MyAgentAdapter();
-
-  describe("canHandle", () => {
-    it("handles my-agent commands", () => {
-      expect(MyAgentAdapter.canHandle("my-agent")).toBe(true);
-      expect(MyAgentAdapter.canHandle("my-agent --json")).toBe(true);
-    });
-
-    it("rejects other commands", () => {
-      expect(MyAgentAdapter.canHandle("pi --mode rpc")).toBe(false);
-      expect(MyAgentAdapter.canHandle("aider")).toBe(false);
-    });
+  it('parses assistant text', () => {
+    const events = adapter.parseLine('{"type":"assistant","message":{"content":[{"type":"text","text":"hello"}]}}');
+    expect(events).toEqual([{ type: 'text-delta', text: 'hello' }]);
   });
 
-  describe("formatInput", () => {
-    it("formats task as stdin input", () => {
-      const result = adapter.formatInput({ id: "1", message: "fix the bug" });
-      expect(result).toContain("fix the bug");
-    });
+  it('parses completion', () => {
+    const events = adapter.parseLine('{"type":"result","subtype":"success"}');
+    expect(events).toEqual([{ type: 'status', state: 'completed' }]);
   });
 
-  describe("parseOutput", () => {
-    it("parses response events", () => {
-      const result = adapter.parseOutput(
-        JSON.stringify({ type: "response", content: "analyzing..." })
-      );
-      expect(result).toEqual({ type: "progress", text: "analyzing..." });
-    });
-
-    it("parses done events", () => {
-      const result = adapter.parseOutput(
-        JSON.stringify({ type: "done", result: "fixed" })
-      );
-      expect(result).toEqual({ type: "complete", result: "fixed" });
-    });
-
-    it("parses error events", () => {
-      const result = adapter.parseOutput(
-        JSON.stringify({ type: "error", message: "something broke" })
-      );
-      expect(result).toEqual({ type: "failed", text: "something broke" });
-    });
-
-    it("ignores empty lines", () => {
-      expect(adapter.parseOutput("")).toBeNull();
-      expect(adapter.parseOutput("   ")).toBeNull();
-    });
-
-    it("handles plain text as progress", () => {
-      const result = adapter.parseOutput("some plain text output");
-      expect(result).toEqual({ type: "progress", text: "some plain text output" });
-    });
+  it('handles non-JSON lines', () => {
+    const events = adapter.parseLine('bare text output');
+    expect(events[0]?.type).toBe('text-delta');
   });
 });
 ```
 
-### Step 4: Register the Adapter
-
-Add to `packages/core/src/AdapterRegistry.ts`:
-
-```typescript
-import { MyAgentAdapter } from "@fangai/adapter-my-agent";
-
-const ADAPTERS = [
-  PiAdapter,
-  AiderAdapter,
-  ClaudeAdapter,
-  OpenCodeAdapter,
-  MyAgentAdapter,     // ← add here, before GenericAdapter
-  GenericAdapter,     // ← always last
-];
-```
-
-### Step 5: Test End-to-End
-
-```bash
-pnpm -r build
-
-# If my-agent is installed globally
-fang wrap "my-agent --my-flag" --port 3005
-
-# Test it
-fang send --port 3005 "hello world"
-curl http://localhost:3005/.well-known/agent.json | jq
-```
-
-### Step 6: Open a PR
-
-Your PR should include:
-- [ ] Adapter implementation (`src/index.ts`)
-- [ ] Tests (`src/__tests__/`)
-- [ ] Updated supported agents table in README
-- [ ] Real CLI output samples in test fixtures (if possible)
+Run: `bun test test/adapter-parse.test.ts`
 
 ---
 
-## Adapter Patterns
-
-### Pattern 1: JSON Lines (Most Common)
-
-Most structured CLIs output one JSON object per line. This is the easiest to parse.
-
-```typescript
-parseOutput(line: string): TaskUpdate | null {
-  if (!line.trim()) return null;
-  try {
-    const event = JSON.parse(line);
-    // map event.type → TaskUpdate.type
-  } catch {
-    return null; // skip non-JSON lines
-  }
-}
-```
-
-**Used by:** pi (`--mode rpc`), aider (`--json`), opencode (`--json-output`)
-
-### Pattern 2: Plain Text Stream
-
-Some CLIs just write text. Every non-empty line is progress.
-
-```typescript
-parseOutput(line: string): TaskUpdate | null {
-  if (!line.trim()) return null;
-  return { type: "progress", text: line };
-}
-```
-
-**Used by:** claude (`--print`), generic fallback
-
-### Pattern 3: ANSI-Colored Text
-
-Some CLIs output colored text. Strip ANSI codes first.
-
-```typescript
-parseOutput(line: string): TaskUpdate | null {
-  const clean = line.replace(/\x1b\[[0-9;]*m/g, "").trim();
-  if (!clean) return null;
-  return { type: "progress", text: clean };
-}
-```
-
-### Pattern 4: Mixed JSON and Text
-
-Some CLIs interleave JSON events with plain text output.
-
-```typescript
-parseOutput(line: string): TaskUpdate | null {
-  if (!line.trim()) return null;
-  try {
-    const event = JSON.parse(line);
-    // handle structured events
-  } catch {
-    // plain text — still valuable as progress
-    return { type: "progress", text: line };
-  }
-}
-```
-
-### Pattern 5: Prompt-Based (Interactive CLIs)
-
-Some CLIs have a REPL with prompts. These are harder to wrap.
-
-```typescript
-formatInput(task: Task): string {
-  // Send the task, then exit the REPL
-  return task.message + "\n/exit\n";
-}
-```
-
-For CLIs that need back-and-forth interaction, you may need a more sophisticated adapter that tracks state and matches prompts. This is advanced — start with simpler CLIs first.
-
----
-
-## Testing Your Adapter
-
-### Unit Tests (Required)
-
-Test `formatInput`, `parseOutput`, and `canHandle` in isolation. Use real CLI output samples when possible.
-
-```typescript
-// Capture real output from your CLI:
-// $ my-agent --my-flag "hello" 2>&1 | tee output_samples.txt
-
-// Then use those samples in tests:
-const realOutput = fs.readFileSync("fixtures/output_sample.txt", "utf-8");
-for (const line of realOutput.split("\n")) {
-  const update = adapter.parseOutput(line);
-  // assert expectations
-}
-```
-
-### Integration Tests (Encouraged)
-
-If the CLI agent is installed in CI:
-
-```typescript
-it("wraps and sends a task", async () => {
-  const server = new FangServer(config, new MyAgentAdapter());
-  await server.start();
-  
-  const response = await fetch("http://localhost:3005/a2a", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: "1",
-      method: "message/send",
-      params: {
-        message: {
-          kind: "message",
-          role: "user",
-          messageId: crypto.randomUUID(),
-          parts: [{ kind: "text", text: "echo hello" }],
-        },
-      },
-    }),
-  });
-
-  expect(response.ok).toBe(true);
-  const body = await response.json();
-  expect(body.result).toBeDefined();
-  
-  server.stop();
-});
-```
-
----
-
-## Common Pitfalls
-
-| Pitfall | Solution |
-|---------|----------|
-| CLI buffers stdout | Many CLIs buffer when stdout is a pipe. Set `env.FORCE_COLOR=0` or `env.NODE_OPTIONS="--no-buffering"` |
-| CLI needs a TTY | Some CLIs detect TTY. Set `stdio: ['pipe', 'pipe', 'pipe']` and hope for the best, or use `script`/`pty` as a wrapper |
-| CLI outputs ANSI codes | Strip them: `line.replace(/\x1b\[[0-9;]*m/g, "")` |
-| CLI outputs progress bars | Progress bars use `\r`. Filter lines containing `\r` or handle them in `parseOutput` |
-| CLI never exits | Set `--timeout` (default 300s). The FangServer kills the process. |
-| CLI writes to stderr only | The core bridges both stdout and stderr. Stderr becomes log updates. |
-| Multi-line JSON | Rare, but handle with a buffer that accumulates until valid JSON |
-
----
-
-## Adapter Quality Checklist
-
-- [ ] `canHandle` is specific enough to not collide with other adapters
-- [ ] `formatInput` produces valid input for the CLI
-- [ ] `parseOutput` handles JSON, plain text, and empty lines
-- [ ] `parseOutput` handles malformed input gracefully (never throws)
-- [ ] Unit tests with real CLI output samples
-- [ ] Works end-to-end with `fang wrap` + `fang send`
-- [ ] README updated in supported agents table
-
----
-
-## Questions?
-
-Open an issue with the `adapter` label. We'll help you figure it out.
-
----
-
-## See also
-
-| Doc | Purpose |
-| --- | --- |
-| **[`FANG-SPEC.md`](./FANG-SPEC.md)** | Routes, executor, adapter gaps |
-| **[`ARCHITECTURE.md`](../ARCHITECTURE.md)** | Diagrams, FAQ, doc hub |
-| **[`A2A-COMPLIANCE.md`](./A2A-COMPLIANCE.md)** | A2A mapping from HTTP |
-| **[`PUBLISHING.md`](./PUBLISHING.md)** | Shipping `@fangai/adapter-*` |
-
----
-
-*Every new adapter grows the bridge.*
+*The contract IS the architecture. The adapter IS the moat.*

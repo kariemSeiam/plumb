@@ -1,437 +1,242 @@
-<div align="center">
+# plumb
+
+*Quiet pipes for noisy agents.*
+
+[![CI](https://github.com/kariemSeiam/plumb/actions/workflows/ci.yml/badge.svg)](https://github.com/kariemSeiam/plumb/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/plumb-bridge)](https://www.npmjs.com/package/plumb-bridge)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Bun >=1.1](https://img.shields.io/badge/bun-%3E%3D1.1.0-black)](https://bun.sh)
+
+Plumb wraps CLI coding agents into [A2A](https://google.github.io/A2A/) HTTP servers. It spawns a subprocess, reads its stdout, writes JSONL, and exits. One command. One ledger. Eight adapters. Zero dashboards.
+
+**[Try it](#try-it) · [What it refuses](#what-plumb-refuses) · [What it bets on](#what-plumb-bets-on) · [Fleet](#fleet) · [Adapters](#adapters) · [Surface](#surface) · [Setup](#setup) · [FAQ](#faq)**
+
+---
+
+<br>
+
+## How it works
 
 ```text
- ███████╗███████╗
- ██╔════╝██╔════╝
- █████╗  █████╗
- ██╔══╝  ██╔══╝
- ██║     ███████╗
- ╚═╝     ╚══════╝
+you ──→ POST /a2a/jsonrpc ──→ plumb ──→ claude (subprocess) ──→ stdout
+                                           │
+                                           ↓
+                                      parseLine() → AdapterEvent[]
+                                           │
+                                     ┌─────┴──────┐
+                                     ↓            ↓
+                                  SSE stream   JSONL ledger
+                                  (to you)     (on disk)
 ```
 
-### Every CLI agent is an island. Fang builds the bridge.
+Rendered flowchart and the full pipeline (layer responsibilities, process modes, event flow): [ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
-[![A2A Protocol](https://img.shields.io/badge/A2A-Protocol-0A66C2?style=flat-square&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjE0IiBoZWlnaHQ9IjE0IiBmaWxsPSJ3aGl0ZSI+PHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6bS0xIDE3LjkzYy0zLjk1LS40OS03LTMuOTUtNy03LjkzczMuMDUtNy40NCA3LTcuOTN2MTUuODZ6Ii8+PC9zdmc+)](https://github.com/a2aproject/A2A)
-[![npm @fangai/core](https://img.shields.io/badge/npm-@fangai%2Fcore-CB3847?style=flat-square&logo=npm)](https://www.npmjs.com/package/@fangai/core)
-[![Node 24+](https://img.shields.io/badge/node-24+-339933?style=flat-square&logo=node.js)](https://nodejs.org)
-
-<sup>Wrap any CLI coding agent into an A2A server — one command. Zero plugins. Zero lock-in.</sup>
-
-</div>
-
-<br>
+Plumb does not generate text. It does not decide. It does not remember. It moves bytes from one process to another and records what happened.
 
 ---
 
-<br>
-
-<details>
-<summary><strong>Table of Contents</strong></summary>
-
-- [Manifesto](#manifesto)
-- [One Command](#one-command)
-- [Test It in 30 Seconds](#test-it-in-30-seconds)
-- [Detect Installed Agents](#detect-installed-agents)
-- [How It Works](#how-it-works)
-- [Supported Agents](#supported-agents)
-- [Why A2A over MCP?](#why-a2a-over-mcp)
-- [Client Library](#client-library)
-- [CLI Reference](#cli-reference)
-- [Config](#config)
-- [Deployment](#deployment)
-- [Architecture](#architecture)
-- [Contributing](#contributing)
-- [Documentation](#documentation)
-- [License](#license)
-
-</details>
-
-<br>
-
----
-
-<br>
-
-## Manifesto
-
-The best coding agents in the world — `pi`, `claude`, `cursor-agent`, `aider`, `codex`, `gemini`, `opencode` — share one trait:
-
-**They work alone.**
-
-Each one is a powerful, self-contained process. You run it, it does the job, it disappears.
-
-No discovery. No delegation. No protocol. No way for an orchestrator to say *you, do this* without wrapping each agent in custom glue code.
-
-```text
-  pi ──?── orchestrator ──?── claude
-  aider ──?──           ──?── codex
-```
-
-Every team that wants multi-agent workflows builds the same bridge from scratch. Over and over.
-
-**Fang is that bridge, built once and built right.**
-
-It wraps any CLI agent into an **A2A-compliant server** in one command. No plugins. No agent-side changes. No vendor lock-in. The agent doesn't even know it's been bridged.
-
-```text
-  pi ──── Fang ──── A2A ──── orchestrator ──── A2A ──── Fang ──── claude
-  aider ── Fang ──── A2A ────               ──── A2A ──── Fang ──── codex
-```
-
-<br>
-
----
-
-<br>
-
-## One Command
+## Try it
 
 ```bash
-fang wrap "claude --print" --port 3001
-```
+# Terminal 1 — wrap even `cat` as an A2A agent
+plumb wrap cat --port 3001
 
-That's it. `claude` is now:
-
-- **Discoverable** — standard A2A Agent Card at `/.well-known/agent-card.json`
-- **Callable** — JSON-RPC 2.0 and REST endpoints
-- **Streamable** — real-time SSE updates as the agent works
-- **Composable** — any A2A client can delegate to it
-
-```bash
-# Wrap multiple agents
-fang wrap "pi --mode rpc"    --port 3001   # persistent JSONL RPC
-fang wrap "claude --print"   --port 3002   # oneshot text stream
-fang wrap "cursor-agent --print --output-format stream-json --yolo --trust" --port 3003   # cursor agent
-fang wrap "codex --json"     --port 3004   # oneshot JSONL
-fang wrap "opencode run"     --port 3005   # oneshot JSON
-fang wrap "aider --json"     --port 3006   # oneshot JSON mode
-
-# Or start them all at once
-fang serve -c fang.yaml
-```
-
-<br>
-
----
-
-<br>
-
-## Test It in 30 Seconds
-
-```bash
-# 1. Wrap even cat as an A2A agent
-fang wrap "cat" --port 3001 &
-
-# 2. Send a task
-fang send "Hello from A2A" --port 3001
-
-# 3. Or raw JSON-RPC
-curl -X POST http://localhost:3001/a2a \
+# Terminal 2 — send a task
+curl -X POST http://localhost:3001/a2a/jsonrpc \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0", "id": "1", "method": "message/send",
     "params": {
-      "message": {
-        "messageId": "m1", "role": "user",
-        "parts": [{"kind": "text", "text": "Hello from A2A!"}]
-      }
+      "id": "demo",
+      "message": { "role": "user", "parts": [{ "type": "text", "text": "Hello" }] }
     }
   }'
 ```
 
-<br>
+The SSE stream returns:
 
----
+```text
+event: task_lifecycle_notification
+data: {"kind":"task","id":"demo","status":{"state":"working"}}
 
-<br>
+event: artifact_update
+data: {"kind":"artifact-update","artifact":{"parts":[{"type":"text","text":"Hello\n"}]}}
 
-## Detect Installed Agents
+event: task_lifecycle_notification
+data: {"kind":"message","id":"demo"}
+```
+
+The ledger records everything, independently of whether the client stayed connected:
 
 ```bash
-fang detect
+cat .plumb/ledger/$(date +%Y-%m-%d).jsonl | jq '.'
 ```
 
-```text
-  Scanning for CLI agents...
-
-  ✓ Claude Code     Tier 1
-    Binary: claude (1.0.0)
-    Path:   /usr/local/bin/claude
-    Mode:   oneshot
-    Protocol: stream-json
-    Skills: Complex reasoning, Code generation
-
-  ✓ Pi              Tier 1
-    Binary: pi (0.1.0)
-    Path:   /usr/local/bin/pi
-    Mode:   persistent
-    Protocol: jsonl-rpc
-    Skills: Code any task, Refactor, Debug & fix
+```jsonl
+{"type":"task_submitted","taskId":"demo","cli":"cat","message":"Hello"}
+{"type":"task_running","taskId":"demo"}
+{"type":"progress","taskId":"demo","text":"Hello\n"}
+{"type":"task_completed","taskId":"demo"}
 ```
 
-<br>
+---
+
+## What plumb refuses
+
+Instead of adding a feature, most bridges eventually grow one of these. Plumb names each refusal and the boundary it protects — full reasoning in [REFUSALS.md](docs/soul/REFUSALS.md).
+
+| Instead of… | Plumb does… | Why |
+|---|---|---|
+| A dashboard | Returns `200` or `400` | Health is binary. A chart adds nothing to that signal. |
+| Orchestration | Routes by label, assigned by the operator | Plumb doesn't know what a task requires or what an agent can do. The operator decides. |
+| An LLM call | Spawns a subprocess and reads stdout | Transport layer, not an intelligence layer. |
+| A plugin system | One fixed adapter contract | Changing it requires a commit and a test run, not a marketplace. |
+| Learned memory | An append-only ledger | The ledger records. It does not summarize or cross-reference. A separate process can. |
+| Process supervision | Executes the task, then exits | `systemd` restarts crashed processes better than Plumb ever will. |
+| A managed platform | Ships on npm, source on GitHub | No hosted service, no extension registry, nothing to keep alive beyond the pipe. |
 
 ---
 
-<br>
+## What plumb bets on
 
-## How It Works
+Every non-trivial choice below is a bet with a stated failure condition, not a claimed best practice — full ADRs with honest edges in [DESIGN.md](DESIGN.md).
 
-```text
-                      ANY A2A ORCHESTRATOR
-                             │
-                  JSON-RPC 2.0 / REST / SSE
-                             │
-                             ▼
-                ┌────────────────────────────┐
-                │         FangServer          │
-                │     (@a2a-js/sdk + Express)  │
-                │                              │
-                │  FangAgentExecutor           │
-                │  Adapter (agent-specific)    │
-                │  ProcessManager              │
-                └────────────┬─────────────────┘
-                             │
-                       stdin / stdout
-                             │
-                             ▼
-                ┌────────────────────────────┐
-                │   pi / claude / aider / any │
-                └────────────────────────────┘
-```
-
-> [!NOTE]
-> **The core insight:** Every CLI agent reads stdin and writes stdout. That interface is older than HTTP, older than JSON — older than every protocol since the terminal itself. Fang translates between that universal interface and A2A. Nothing more, nothing less.
-
-<br>
+| Decision | Choice | Fails when |
+|---|---|---|
+| Ledger | Append-only JSONL, daily rotation, `jq`/`DuckDB` to query | 10K+ tasks/day without an external index; schema drift across versions with no `version` field |
+| Runtime | Bun (`Bun.spawn`, built-in test runner, no `tsc` step) | An npm dependency needs native bindings Bun can't resolve, or you must deploy somewhere Node-only |
+| Streaming | A2A over SSE, not WebSocket | Client disconnects during the final event and never sees `task_completed` — must reconcile from the ledger |
+| Delivery | Fire-and-forget; ledger writes are synchronous (`appendFileSync`) | High concurrency + large outputs turns the synchronous write into the hot-path bottleneck |
+| Config | YAML (`plumb.yaml`) | Type coercion, anchors, tab-vs-space errors — `plumb fleet validate` exists specifically to catch these before boot |
 
 ---
 
-<br>
+## Fleet
 
-## Supported Agents
-
-| Agent | Tier | Protocol | Mode | Status |
-|:------|:----:|:---------|:-----|:------:|
-| **Pi** | 1 | JSONL RPC | **Persistent** | ✅ |
-| **Claude Code** | 1 | stream-json | Oneshot | ✅ |
-| **Cursor Agent** | 1 | stream-json | Oneshot | ✅ |
-| **Codex CLI** | 1 | JSONL | Oneshot | ✅ |
-| **Gemini CLI** | 2 | ACP (JSON-RPC) | Oneshot | ✅ |
-| **OpenCode** | 2 | JSON output | Oneshot | ✅ |
-| **Aider** | 3 | Text + heuristics | Oneshot | ✅ |
-| **Any CLI** | 3 | Text passthrough | Oneshot | ✅ |
-| **Goose** | 2 | ACP | Oneshot | 🔜 |
-| **SWE-agent** | 3 | Text | Oneshot | 🔜 |
-
-<details>
-<summary><strong>Tier System</strong></summary>
-
-- **Tier 1** — Native JSON/JSONL output. Direct event parsing. Zero ambiguity. *(Pi, Claude Code, Cursor Agent, Codex)*
-- **Tier 2** — Structured protocol over stdio. Protocol bridge with known schema. *(Gemini CLI, OpenCode)*
-- **Tier 3** — Text only. Heuristic parsing. Best-effort. *(Aider, generic fallback)*
-
-</details>
-
-<details>
-<summary><strong>Persistent Mode</strong></summary>
-
-Pi's `--mode rpc` is the gold standard — a long-lived process with bidirectional JSONL. Fang keeps Pi alive between tasks, preserving session context and warm caches. No other bridge does this.
-
-</details>
-
-<br>
-
----
-
-<br>
-
-## Why A2A over MCP?
-
-CLI agents are **4-32x more token-efficient** than MCP-based approaches.
-
-| Approach | Tokens/query | Monthly cost (10K ops) |
-|:---------|:------------:|:----------------------:|
-| MCP | ~44,000 | ~$55 |
-| CLI via fang | ~1,400 | ~$3 |
-
-> [!IMPORTANT]
-> MCP injects tool schemas into every context window. GitHub's Copilot MCP burns ~55K tokens of schema per session. A2A uses lightweight Agent Cards (~500 bytes) and keeps agent internals internal.
-
-<br>
-
----
-
-<br>
-
-## Client Library
-
-```typescript
-import { FangClient, discoverAgents } from '@fangai/client';
-
-// Discover what's running
-const agents = await discoverAgents();
-// [{ name: 'pi-agent', url: 'http://localhost:3001' }, ...]
-
-// Send a task
-const client = new FangClient('http://localhost:3001');
-const result = await client.send('refactor src/auth.ts to use async/await');
-console.log(result.text);
-```
-
-<br>
-
----
-
-<br>
-
-## CLI Reference
-
-```text
-fang wrap <command> -p <port>   Wrap any CLI as an A2A server
-fang serve [-c config.yaml]     Start all agents from config
-fang detect                     Detect installed CLI agents
-fang discover                   Find running Fang agents on the network
-fang send "<msg>" -p <port>     Send a task to a wrapped agent
-fang stop [-p <port> | --all]   Stop one or all wrapped agents
-```
-
-<br>
-
----
-
-<br>
-
-## Config
+Declare multiple agents once, boot them together.
 
 ```yaml
-# fang.yaml
+# plumb.yaml
+version: "1"
 agents:
-  pi:
-    cli: "pi --mode rpc"
-    port: 3001
-    timeout: 600
-
-  claude:
-    cli: "claude --print"
-    port: 3002
-    timeout: 300
-
-  cursor:
-    cli: "cursor-agent --print --output-format stream-json --stream-partial-output --yolo --trust"
+  - id: claude
+    cli: claude
+    port: 3000
+  - id: cursor
+    cli: cursor-agent --print
     port: 3003
-    timeout: 300
-
-  local:
-    cli: "ollama run qwen2.5-coder"
-    port: 3005
-    timeout: 120
+  - id: wolfy
+    cli: wolfy
+    port: 3007
+    mode: persistent
+    timeout: 600
 ```
 
-<br>
+```bash
+plumb fleet validate   # check config, detect adapters
+plumb fleet up         # boot all
+plumb fleet status     # health check all
+```
+
+Full schema and lifecycle: [FLEET.md](docs/FLEET.md).
+
+## Adapters
+
+Eight protocol parsers, one contract.
+
+| Adapter | CLI | Mode | Protocol |
+|---|---|---|---|
+| Echo | `cat` | oneshot | text |
+| Pi | `pi` | persistent | JSONL-RPC |
+| Wolfy 🐺 | `wolfy` | persistent | JSONL-RPC |
+| Claude | `claude` | oneshot | stream-json |
+| Cursor | `cursor-agent` | oneshot | stream-json |
+| OpenCode | `opencode` | oneshot | json-stream |
+| VENOM | `venom` | oneshot | stream-json |
+| Generic | any | oneshot | text |
+
+<details>
+<summary>The contract every adapter implements (four methods, no more)</summary>
+
+```typescript
+interface AgentAdapter {
+  readonly id: string;
+  readonly binary: string;
+  readonly tier: 1 | 2 | 3;
+  readonly mode: 'oneshot' | 'persistent';
+
+  buildArgs(task: AgentTask, config: PlumbConfig): string[];
+  formatInput(task: AgentTask): string;
+  parseLine(line: string): AdapterEvent[];
+  detect(): Promise<DetectionResult | null>;
+}
+```
+
+The binary registry matches by process name; `generic` is the implicit fallback for anything undetected. Full contract and how to add a ninth adapter: [ADAPTERS.md](docs/ADAPTERS.md).
+
+</details>
+
+## Surface
+
+| Method | Path | Auth |
+|---|---|---|
+| GET | `/.well-known/agent-card.json` | public |
+| GET | `/.well-known/agent.json` | public (redirect) |
+| GET | `/health` | public |
+| POST | `/a2a/jsonrpc` | Bearer (if configured) |
+| * | `/a2a/rest` | Bearer (if configured) |
+
+## Setup
+
+```bash
+# Install
+bun add -g plumb-bridge
+
+# Run the test suite
+bun test
+
+# Run locally
+plumb wrap cat --port 3001
+```
+
+Requires Bun >= 1.1.0.
 
 ---
 
-<br>
-
-## Deployment
-
-### Docker
-
-```bash
-docker-compose up -d
-```
-
-### systemd
-
-```bash
-sudo cp systemd/fang@.service /etc/systemd/system/
-sudo systemctl enable fang@"pi --mode rpc"
-sudo systemctl start fang@"pi --mode rpc"
-```
-
-<br>
-
----
-
-<br>
-
-## Architecture
+## Project
 
 ```text
-packages/
-├── core/           FangServer, FangAgentExecutor, BaseAdapter, ProcessManager
-├── client/         @fangai/client — FangClient + discoverAgents
-├── cli/            @fangai/cli — CLI entry point (6 commands)
-├── pi/             @fangai/pi — Pi JSONL RPC adapter
-└── adapters/
-    ├── claude/     Claude Code text stream adapter
-    ├── cursor/     Cursor Agent CLI stream-json adapter
-    ├── codex/      Codex CLI JSONL adapter
-    ├── opencode/   OpenCode JSON output adapter
-    ├── aider/      Aider JSON mode adapter
-    └── generic/    Generic text passthrough (catches everything else)
+src/
+  core/
+    executor.ts        Task dispatch, INK validation, event routing, ledger
+    process.ts          ProcessManager + PersistentProcess
+    server.ts            Express + A2A SDK, auth, Agent Card
+    ledger.ts             Append-only JSONL writer
+    task-store.ts          LRU + TTL bounded task memory
+    session-store.ts        Cursor multi-turn session tracking
+  adapters/            8 adapters + binary registry
+  types.ts               AdapterEvent, LedgerEvent, AgentAdapter
+  cli.ts                    plumb wrap, fleet commands
+docs/
+  DESIGN.md             Architecture Decision Records with honest edges
+  ARCHITECTURE.md         Pipeline, layers, crash resilience
+  ADAPTERS.md               Adapter implementation guide
+  LEDGER.md                   Schema and query patterns
+  FLEET.md                      Fleet config and lifecycle
+  soul/                            PACT, REFUSALS, EVOLUTION
 ```
 
-> **pnpm monorepo.** Each package is independently publishable.
+## FAQ
 
-Two execution models:
-- **oneshot** — spawn per task, stdout = result, exit = done *(Claude, Aider, Codex, etc.)*
-- **persistent** — spawn once, JSONL over stdin/stdout, keep alive between tasks *(Pi `--mode rpc`)*
+**Why not just use MCP?** MCP injects tool schemas into every context window an orchestrator opens — real token cost, every call. Plumb (via A2A) exposes a small Agent Card once and keeps everything else behind stdin/stdout. If your orchestrator already speaks MCP and token cost isn't the constraint, that's a legitimate reason to skip Plumb.
 
-Built on `@a2a-js/sdk` for full A2A protocol compliance:
-- `DefaultRequestHandler` + `InMemoryTaskStore` for task lifecycle
-- `agentCardHandler` for Agent Card serving
-- `jsonRpcHandler` for JSON-RPC 2.0
-- `restHandler` for HTTP+JSON/REST
+**Does Plumb pick the right agent for a task?** No, on purpose — see [What plumb refuses](#what-plumb-refuses). You assign labels; Plumb routes by label. If you want capability-based routing, build that one layer up, on top of Plumb, not inside it.
 
-Full internals: **[ARCHITECTURE.md](ARCHITECTURE.md)**
+**What happens if the client disconnects mid-task?** The SSE stream is best-effort; the ledger is the system of record. If the connection drops on the final event, the client never sees `task_completed` and must reconcile by reading `.plumb/ledger/<date>.jsonl` directly — see [DESIGN.md](DESIGN.md) (ADR-004) for the exact failure mode this produces.
 
-<br>
+**Can I run this on Node instead of Bun?** Not today. The runtime choice is a deliberate bet ([DESIGN.md](DESIGN.md), ADR-002) for startup speed and built-in tooling — with the stated cost that some npm packages with native bindings won't resolve under Bun, and Node-only managed environments (some Lambda-style runtimes) can't run it unmodified.
 
----
-
-<br>
-
-## Contributing
-
-See **[CONTRIBUTING.md](CONTRIBUTING.md)**. The most valuable contributions:
-
-1. **New adapters** — wrap a CLI agent we don't support yet
-2. **Bug reports** — tell us what breaks
-3. **Examples** — show your multi-agent setup
-
-<br>
-
----
-
-<br>
-
-## Documentation
-
-| Doc | What |
-|:----|:-----|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Design, data flow, security model, adapter guide |
-| [ADAPTERS.md](docs/ADAPTERS.md) | Writing new adapters (full walkthrough) |
-| [A2A-COMPLIANCE.md](docs/A2A-COMPLIANCE.md) | A2A protocol compliance details |
-| [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production deployment guide |
-| [FANG-SPEC.md](docs/FANG-SPEC.md) | Implementation spec |
-| [PUBLISHING.md](docs/PUBLISHING.md) | npm publishing process |
-| [CHANGELOG.md](CHANGELOG.md) | Release history |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute |
-
-<br>
-
----
-
-<br>
-
-## License
-
-[MIT](LICENSE) — do what you want.
-
-<br>
+**Is there a hosted version?** No, and there won't be — see [No platform](#what-plumb-refuses). The npm package is the distribution; the GitHub repo is the source.
 
 ---
 
@@ -439,14 +244,13 @@ See **[CONTRIBUTING.md](CONTRIBUTING.md)**. The most valuable contributions:
 
 <div align="center">
 
-```text
-   /\_/\      Built for developers who use more than
-  ( o.o )     one agent and refuse to build the same
-   > ^ <      bridge twice.
-```
+*The plumb bob hangs true because gravity is not negotiable.*
+*Plumb hangs true because the adapter contract is not negotiable.*
+*The operator is the architect.*
+*Everything else is the operator's job.*
 
-**[kariemSeiam/fangai](https://github.com/kariemSeiam/fangai)**
+<br>
 
-<sub>Every commit howls. 🐺</sub>
+**[kariemSeiam/plumb](https://github.com/kariemSeiam/plumb)** · MIT
 
 </div>
